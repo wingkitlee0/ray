@@ -297,16 +297,25 @@ class GroupedData:
         else:
             sorted_ds = self._dataset.repartition(1)
 
-        # Returns the group boundaries.
-        def get_key_boundaries(block_accessor: BlockAccessor):
+        def get_key_boundaries(block_accessor: BlockAccessor) -> List[int]:
+            """Compute block boundaries based on the key(s)"""
+
             import numpy as np
 
-            boundaries = []
             # Get the keys of the batch in numpy array format
             keys = block_accessor.to_numpy(self._key)
+
+            if isinstance(keys, np.ndarray):
+                arr = keys
+            else:
+                first_key = next(iter(keys))
+                arr = np.empty(len(keys[first_key]), dtype=object)
+                arr[:] = list(zip(*keys.values()))
+
+            boundaries = []
             start = 0
-            while start < keys.size:
-                end = start + np.searchsorted(keys[start:], keys[start], side="right")
+            while start < len(arr):
+                end = start + np.searchsorted(arr[start:], arr[start], side="right")
                 boundaries.append(end)
                 start = end
             return boundaries
