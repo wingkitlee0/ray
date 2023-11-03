@@ -305,20 +305,36 @@ class GroupedData:
             # Get the keys of the batch in numpy array format
             keys = block_accessor.to_numpy(self._key)
 
-            if isinstance(keys, np.ndarray):
-                arr = keys
+            has_single_key = isinstance(keys, np.ndarray)
+
+            if has_single_key:
+                boundaries = []
+                start = 0
+                while start < len(keys):
+                    end = start + np.searchsorted(
+                        keys[start:], keys[start], side="right"
+                    )
+                    boundaries.append(end)
+                    start = end
+                return boundaries
+
             else:
+                # For multiple keys, we generate a separate tuple column
+                # Due to how np functions treats tuples, we need to cast
+                # it into an array of tuple
                 first_key = next(iter(keys))
                 arr = np.empty(len(keys[first_key]), dtype=object)
                 arr[:] = list(zip(*keys.values()))
 
-            boundaries = []
-            start = 0
-            while start < len(arr):
-                end = start + np.searchsorted(arr[start:], arr[start], side="right")
-                boundaries.append(end)
-                start = end
-            return boundaries
+                boundaries = []
+                start = 0
+                while start < len(arr):
+                    x = np.empty(1, dtype=object)
+                    x[0] = arr[start]
+                    end = start + np.searchsorted(arr[start:], x, side="right")[0]
+                    boundaries.append(end)
+                    start = end
+                return boundaries
 
         # The batch is the entire block, because we have batch_size=None for
         # map_batches() below.
