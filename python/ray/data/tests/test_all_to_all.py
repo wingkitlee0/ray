@@ -362,36 +362,6 @@ def test_groupby_multiple_keys_tabular_count(
 
 
 @pytest.mark.parametrize("num_parts", [1, 30])
-@pytest.mark.parametrize("ds_format", ["pyarrow", "pandas", "numpy"])
-def test_groupby_multiple_keys_map_groups(
-    ray_start_regular_shared, ds_format, num_parts, use_push_based_shuffle
-):
-    # Test built-in count aggregation
-    print(f"Seeding RNG for test_groupby_arrow_count with: {RANDOM_SEED}")
-    random.seed(RANDOM_SEED)
-    xs = list(range(100))
-    random.shuffle(xs)
-
-    ds = ray.data.from_items([{"A": (x % 2), "B": (x % 3)} for x in xs]).repartition(
-        num_parts
-    )
-    ds = ds.map_batches(lambda x: x, batch_size=None, batch_format=ds_format)
-
-    agg_ds = ds.groupby(["A", "B"]).map_groups(
-        lambda df: {"count": [len(df["A"])]}, batch_format=ds_format
-    )
-    assert agg_ds.count() == 6
-    assert agg_ds.take_all() == [
-        {"count": 17},
-        {"count": 16},
-        {"count": 17},
-        {"count": 17},
-        {"count": 17},
-        {"count": 16},
-    ]
-
-
-@pytest.mark.parametrize("num_parts", [1, 30])
 @pytest.mark.parametrize("ds_format", ["arrow", "pandas"])
 def test_groupby_tabular_sum(
     ray_start_regular_shared, ds_format, num_parts, use_push_based_shuffle
@@ -1112,6 +1082,35 @@ def test_groupby_map_groups_extra_args(ray_start_regular_shared):
         fn_kwargs={"c": 3},
     )
     assert sorted([x["value"] for x in ds.take()]) == [6, 8, 10, 12]
+
+
+@pytest.mark.parametrize("num_parts", [1, 30])
+@pytest.mark.parametrize("ds_format", ["pyarrow", "pandas", "numpy"])
+def test_groupby_map_groups_multicolumn(
+    ray_start_regular_shared, ds_format, num_parts, use_push_based_shuffle
+):
+    # Test built-in count aggregation
+    print(f"Seeding RNG for test_groupby_arrow_count with: {RANDOM_SEED}")
+    random.seed(RANDOM_SEED)
+    xs = list(range(100))
+    random.shuffle(xs)
+
+    ds = ray.data.from_items([{"A": (x % 2), "B": (x % 3)} for x in xs]).repartition(
+        num_parts
+    )
+
+    agg_ds = ds.groupby(["A", "B"]).map_groups(
+        lambda df: {"count": [len(df["A"])]}, batch_format=ds_format
+    )
+    assert agg_ds.count() == 6
+    assert agg_ds.take_all() == [
+        {"count": 17},
+        {"count": 16},
+        {"count": 17},
+        {"count": 17},
+        {"count": 17},
+        {"count": 16},
+    ]
 
 
 def test_random_block_order_schema(ray_start_regular_shared):
