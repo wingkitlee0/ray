@@ -44,6 +44,7 @@ class SortKey:
         self,
         key: Optional[Union[str, List[str]]] = None,
         descending: Union[bool, List[bool]] = False,
+        boundaries: Optional[List[tuple]] = None,
     ):
         if key is None:
             key = []
@@ -64,6 +65,7 @@ class SortKey:
                 raise ValueError("Sorting with mixed key orders not supported yet.")
         self._columns = key
         self._descending = descending
+        self._boundaries = boundaries
 
     def get_columns(self) -> List[str]:
         return self._columns
@@ -209,7 +211,12 @@ def sort_impl(
     # Use same number of output partitions.
     num_reducers = num_mappers
     # TODO(swang): sample_boundaries could be fused with a previous stage.
-    boundaries = sample_boundaries(blocks_list, sort_key, num_reducers, ctx)
+    if not sort_key._boundaries:
+        boundaries = sample_boundaries(blocks_list, sort_key, num_reducers, ctx)
+    else:
+        boundaries = sort_key._boundaries
+        num_mappers = len(boundaries) + 1
+        num_reducers = num_mappers
     _, ascending = sort_key.to_pandas_sort_args()
     if not ascending:
         boundaries.reverse()
