@@ -2212,7 +2212,7 @@ class Dataset:
         self,
         key: Union[str, List[str], None] = None,
         descending: Union[bool, List[bool]] = False,
-        boundaries: Optional[List[tuple]] = None,
+        boundaries: Optional[list] = None,
     ) -> "Dataset":
         """Sort the dataset by the specified key column or key function.
 
