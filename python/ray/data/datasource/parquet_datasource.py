@@ -487,6 +487,8 @@ def _read_fragments(
     logger.debug(f"Reading {len(fragments)} parquet fragments")
     use_threads = to_batches_kwargs.pop("use_threads", False)
     batch_size = to_batches_kwargs.pop("batch_size", default_read_batch_size_rows)
+
+    read_whole_file = to_batches_kwargs.pop("read_whole_file", False)
     for fragment in fragments:
         part = _get_partition_keys(fragment.partition_expression)
         batches = fragment.to_batches(
@@ -496,8 +498,8 @@ def _read_fragments(
             batch_size=batch_size,
             **to_batches_kwargs,
         )
-        for batch in batches:
-            table = pa.Table.from_batches([batch], schema=schema)
+        if read_whole_file:
+            table = pa.Table.from_batches(batches, schema=schema)
             if part:
                 for col, value in part.items():
                     if columns and col not in columns:
@@ -515,6 +517,26 @@ def _read_fragments(
                     yield block_udf(table)
                 else:
                     yield table
+        else:
+            for batch in batches:
+                table = pa.Table.from_batches([batch], schema=schema)
+                if part:
+                    for col, value in part.items():
+                        if columns and col not in columns:
+                            continue
+                        table = table.set_column(
+                            table.schema.get_field_index(col),
+                            col,
+                            pa.array([value] * len(table)),
+                        )
+                if include_paths:
+                    table = table.append_column("path", [[fragment.path]] * len(table))
+                # If the table is empty, drop it.
+                if table.num_rows > 0:
+                    if block_udf is not None:
+                        yield block_udf(table)
+                    else:
+                        yield table
 
 
 def _fetch_metadata_serialization_wrapper(
@@ -557,6 +579,8 @@ def _sample_fragment(
     # Use the batch_size calculated above, and ignore the one specified by user if set.
     # This is to avoid sampling too few or too many rows.
     to_batches_kwargs.pop("batch_size", None)
+    # ignore 'read_whole_file' as it's not a pyarrow option
+    to_batches_kwargs.pop("read_whole_file", None)
     batches = fragment.to_batches(
         columns=columns,
         schema=schema,

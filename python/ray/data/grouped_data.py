@@ -251,6 +251,7 @@ class GroupedData:
         batch_format: Optional[str] = "default",
         fn_args: Optional[Iterable[Any]] = None,
         fn_kwargs: Optional[Dict[str, Any]] = None,
+        groups_sorted_and_partitioned: bool = False,
         **ray_remote_args,
     ) -> "Dataset":
         """Apply the given function to each group of records of this dataset.
@@ -260,6 +261,10 @@ class GroupedData:
             * It requires that each group fits in memory on a single node.
 
         In general, prefer to use aggregate() instead of map_groups().
+
+        If the groups are already sorted and partitioned, map_groups() can directly
+        use the existing group boundaries without applying global sort. This can be
+        specified by the ``groups_sorted_and_partitioned`` flag.
 
         Examples:
             >>> # Return a single record per group (list of multiple records in,
@@ -304,6 +309,10 @@ class GroupedData:
                 exactly as is with no additional formatting.
             fn_args: Arguments to `fn`.
             fn_kwargs: Keyword arguments to `fn`.
+            groups_sorted_and_partitioned: The flag indicates that the group key is
+                already sorted and partitioned. That is, each group is fully contained
+                in each block. This should allow better performance by skipping the
+                global sort.
             ray_remote_args: Additional resource requirements to request from
                 ray (e.g., num_gpus=1 to request GPUs for the map tasks).
 
@@ -315,7 +324,13 @@ class GroupedData:
         # Note that sort() will ensure that records of the same key partitioned
         # into the same block.
         if self._key is not None:
-            sorted_ds = self._dataset.sort(self._key)
+            if groups_sorted_and_partitioned:
+                # If the groups are already sorted and partitioned,
+                # no sort is needed
+                sorted_ds = self._dataset
+            else:
+                # Global sort in the general case
+                sorted_ds = self._dataset.sort(self._key)
         else:
             sorted_ds = self._dataset.repartition(1)
 

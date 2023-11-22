@@ -670,7 +670,7 @@ def find_partition_index(
     return right if descending is True else left
 
 
-def find_partitions(table, boundaries, sort_key):
+def find_partitions(table, boundaries: List[List[Any]], sort_key: "SortKey"):
     partitions = []
 
     # For each boundary value, count the number of items that are less
