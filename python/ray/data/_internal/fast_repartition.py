@@ -115,3 +115,7 @@ def fast_repartition(
         new_metadata += empty_metadata
 
     return BlockList(new_blocks, new_metadata, owned_by_consumer=owned_by_consumer), {}
+
+
+def repartition_by_column():
+    raise NotImplementedError

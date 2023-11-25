@@ -2,6 +2,9 @@ from typing import Any, Dict, List, Optional
 
 from ray.data._internal.logical.interfaces import LogicalOperator
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskSpec
+from ray.data._internal.planner.exchange.repartition_by_col_task_spec import (
+    RepartitionByColTaskSpec,
+)
 from ray.data._internal.planner.exchange.shuffle_task_spec import ShuffleTaskSpec
 from ray.data._internal.planner.exchange.sort_task_spec import SortTaskSpec
 from ray.data._internal.sort import SortKey
@@ -99,6 +102,27 @@ class Repartition(AbstractAllToAll):
             sub_progress_bar_names=sub_progress_bar_names,
         )
         self._shuffle = shuffle
+
+
+class RepartitionByCol(AbstractAllToAll):
+    """Logical operator for repartition by column."""
+
+    def __init__(
+        self,
+        input_op: LogicalOperator,
+        key: SortKey,
+    ):
+        sub_progress_bar_names = [
+            RepartitionByColTaskSpec.REPARTITION_BY_COLUMN_SPLIT_SUB_PROGRESS_BAR_NAME,
+            RepartitionByColTaskSpec.REPARTITION_BY_COLUMN_MERGE_SUB_PROGRESS_BAR_NAME,
+        ]
+        super().__init__(
+            "RepartitionByCol",
+            input_op,
+            num_outputs=None,
+            sub_progress_bar_names=sub_progress_bar_names,
+        )
+        self._key = key
 
 
 class Sort(AbstractAllToAll):

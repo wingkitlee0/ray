@@ -42,6 +42,7 @@ from ray.data._internal.logical.operators.all_to_all_operator import (
     RandomizeBlocks,
     RandomShuffle,
     Repartition,
+    RepartitionByCol,
     Sort,
 )
 from ray.data._internal.logical.operators.input_data_operator import InputData
@@ -74,6 +75,7 @@ from ray.data._internal.stage_impl import (
     LimitStage,
     RandomizeBlocksStage,
     RandomShuffleStage,
+    RepartitionByColStage,
     RepartitionStage,
     SortStage,
     ZipStage,
@@ -1109,6 +1111,40 @@ class Dataset:
                 logical_plan.dag,
                 num_outputs=num_blocks,
                 shuffle=shuffle,
+            )
+            logical_plan = LogicalPlan(op)
+        return Dataset(plan, logical_plan)
+
+    @AllToAllAPI
+    def repartition_by(
+        self,
+        key: Union[str, List[str], None] = None,
+    ) -> "Dataset":
+        """Repartition the :class:`Dataset` into :ref:`blocks <dataset_concept>` with one or
+        more column value completely contained.
+
+        Examples:
+            >>> import ray
+            >>> ds = ray.data.range(100)
+            >>> ds.repartition_by("id").num_blocks()
+            10
+
+        Time complexity: ?
+
+        Args:
+            key: column name for alignment
+
+        Returns:
+            The repartitioned :class:`Dataset`.
+        """  # noqa: E501
+        partition_key = SortKey(key, descending=False)
+        plan = self._plan.with_stage(RepartitionByColStage(partition_key))
+
+        logical_plan = self._logical_plan
+        if logical_plan is not None:
+            op = RepartitionByCol(
+                logical_plan.dag,
+                sort_key=partition_key,
             )
             logical_plan = LogicalPlan(op)
         return Dataset(plan, logical_plan)

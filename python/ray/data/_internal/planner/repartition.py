@@ -1,3 +1,4 @@
+from functools import partial
 from typing import List, Optional, Tuple
 
 from ray.data._internal.execution.interfaces import (
@@ -12,10 +13,15 @@ from ray.data._internal.planner.exchange.pull_based_shuffle_task_scheduler impor
 from ray.data._internal.planner.exchange.push_based_shuffle_task_scheduler import (
     PushBasedShuffleTaskScheduler,
 )
+from ray.data._internal.planner.exchange.repartition_by_col_task_spec import (
+    RepartitionByColTaskSpec,
+)
 from ray.data._internal.planner.exchange.shuffle_task_spec import ShuffleTaskSpec
 from ray.data._internal.planner.exchange.split_repartition_task_scheduler import (
+    SplitRepartitionByColTaskScheduler,
     SplitRepartitionTaskScheduler,
 )
+from ray.data._internal.sort import SortKey
 from ray.data._internal.stats import StatsDict
 from ray.data.context import DataContext
 
@@ -72,3 +78,28 @@ def generate_repartition_fn(
     if shuffle:
         return shuffle_repartition_fn
     return split_repartition_fn
+
+
+def generate_repartition_by_col_fn(
+    key: SortKey,
+) -> AllToAllTransformFn:
+    """Generate function to partition blocks based on the specified key column
+
+    Args:
+        key: the column name(s) for partitioning. The SortKey class
+            is used to handle the arg format.
+    """
+
+    # Based on generate_sort_fn()
+
+    def repartition_by_col_fn(
+        key: SortKey,
+        refs: List[RefBundle],
+        ctx: TaskContext,
+    ) -> Tuple[List[RefBundle], StatsDict]:
+        repartition_by_col_spec = RepartitionByColTaskSpec(key)
+        scheduler = SplitRepartitionByColTaskScheduler(repartition_by_col_spec)
+        return scheduler.execute(refs, output_num_blocks=None, ctx=ctx)
+
+    # NOTE: use partial function to avoid UnboundLocalError. See SortTaskSpec
+    return partial(repartition_by_col_fn, key)

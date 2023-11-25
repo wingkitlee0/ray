@@ -8,12 +8,16 @@ from ray.data._internal.logical.operators.all_to_all_operator import (
     RandomizeBlocks,
     RandomShuffle,
     Repartition,
+    RepartitionByCol,
     Sort,
 )
 from ray.data._internal.planner.aggregate import generate_aggregate_fn
 from ray.data._internal.planner.random_shuffle import generate_random_shuffle_fn
 from ray.data._internal.planner.randomize_blocks import generate_randomize_blocks_fn
-from ray.data._internal.planner.repartition import generate_repartition_fn
+from ray.data._internal.planner.repartition import (
+    generate_repartition_by_col_fn,
+    generate_repartition_fn,
+)
 from ray.data._internal.planner.sort import generate_sort_fn
 from ray.data.context import DataContext
 
@@ -41,6 +45,9 @@ def plan_all_to_all_op(
             target_max_block_size = (
                 DataContext.get_current().target_shuffle_max_block_size
             )
+    elif isinstance(op, RepartitionByCol):
+        fn = generate_repartition_by_col_fn(op._key)
+        target_max_block_size = DataContext.get_current().target_shuffle_max_block_size
     elif isinstance(op, Sort):
         fn = generate_sort_fn(op._sort_key)
         target_max_block_size = DataContext.get_current().target_shuffle_max_block_size

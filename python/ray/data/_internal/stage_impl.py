@@ -5,7 +5,7 @@ import ray
 from ray.data._internal.block_list import BlockList
 from ray.data._internal.delegating_block_builder import DelegatingBlockBuilder
 from ray.data._internal.execution.interfaces import TaskContext
-from ray.data._internal.fast_repartition import fast_repartition
+from ray.data._internal.fast_repartition import fast_repartition, repartition_by_column
 from ray.data._internal.plan import AllToAllStage
 from ray.data._internal.remote_fn import cached_remote_fn
 from ray.data._internal.shuffle_and_partition import (
@@ -89,6 +89,31 @@ class RepartitionStage(AllToAllStage):
                 do_fast_repartition,
                 sub_stage_names=["Repartition"],
             )
+
+
+class RepartitionByColStage(AllToAllStage):
+    """Implementation of `Dataset.repartition_by()`."""
+
+    def __init__(self, sort_key: "SortKey"):
+        def do_repartition_by_column(
+            block_list,
+            ctx: TaskContext,
+            clear_input_blocks: bool,
+            *_,
+        ):
+            if clear_input_blocks:
+                blocks = block_list.copy()
+                block_list.clear()
+            else:
+                blocks = block_list
+            return repartition_by_column(blocks, sort_key, ctx)
+
+        super().__init__(
+            "RepartitionByColStage",
+            None,  # num_blocks ?
+            do_repartition_by_column,
+            sub_stage_names=["RepartitionByColStage"],
+        )
 
 
 class RandomizeBlocksStage(AllToAllStage):
