@@ -153,11 +153,11 @@ class RepartitionByColTaskSpec(ExchangeTaskSpec):
 
     def __init__(
         self,
-        key: SortKey,
+        keys: Union[str, List[str]],
     ):
         super().__init__(
-            map_args=[key],
-            reduce_args=[key],
+            map_args=[keys],
+            reduce_args=[keys],
         )
         print("Creating", self.__class__.__name__)
 

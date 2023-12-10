@@ -1118,7 +1118,7 @@ class Dataset:
     @AllToAllAPI
     def repartition_by(
         self,
-        key: Union[str, List[str], None] = None,
+        keys: Union[str, List[str], None] = None,
     ) -> "Dataset":
         """Repartition the :class:`Dataset` into :ref:`blocks <dataset_concept>` with one or
         more column value completely contained.
@@ -1137,14 +1137,14 @@ class Dataset:
         Returns:
             The repartitioned :class:`Dataset`.
         """  # noqa: E501
-        partition_key = SortKey(key, descending=False)
-        plan = self._plan.with_stage(RepartitionByColStage(partition_key))
+        partition_keys = SortKey(keys, descending=False)
+        plan = self._plan.with_stage(RepartitionByColStage(partition_keys))
 
         logical_plan = self._logical_plan
         if logical_plan is not None:
             op = RepartitionByCol(
                 logical_plan.dag,
-                sort_key=partition_key,
+                keys=partition_keys,
             )
             logical_plan = LogicalPlan(op)
         return Dataset(plan, logical_plan)

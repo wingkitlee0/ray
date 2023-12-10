@@ -110,7 +110,7 @@ class RepartitionByCol(AbstractAllToAll):
     def __init__(
         self,
         input_op: LogicalOperator,
-        key: SortKey,
+        keys: SortKey,
     ):
         sub_progress_bar_names = [
             RepartitionByColTaskSpec.REPARTITION_BY_COLUMN_SPLIT_SUB_PROGRESS_BAR_NAME,
@@ -122,7 +122,7 @@ class RepartitionByCol(AbstractAllToAll):
             num_outputs=None,
             sub_progress_bar_names=sub_progress_bar_names,
         )
-        self._key = key
+        self._keys = keys
 
 
 class Sort(AbstractAllToAll):

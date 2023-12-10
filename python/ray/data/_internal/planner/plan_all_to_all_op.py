@@ -46,7 +46,7 @@ def plan_all_to_all_op(
                 DataContext.get_current().target_shuffle_max_block_size
             )
     elif isinstance(op, RepartitionByCol):
-        fn = generate_repartition_by_col_fn(op._key)
+        fn = generate_repartition_by_col_fn(op._keys)
         target_max_block_size = DataContext.get_current().target_shuffle_max_block_size
     elif isinstance(op, Sort):
         fn = generate_sort_fn(op._sort_key)
