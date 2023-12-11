@@ -4,13 +4,13 @@ from typing import Any, Dict, List, Optional, Tuple
 import ray
 from ray.data._internal.execution.interfaces import RefBundle, TaskContext
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskScheduler
-
-# from ray.data._internal.planner.exchange.repartition_by_col_task_spec import (
-#     RepartitionByColTaskSpec,
-# )
+from ray.data._internal.planner.exchange.repartition_by_col_task_spec import (
+    RepartitionByColTaskSpec,
+)
 from ray.data._internal.remote_fn import cached_remote_fn
 from ray.data._internal.split_by_key import Coordinator, process_fragment
 from ray.data._internal.stats import StatsDict
+from ray.data.block import BlockMetadata
 from ray.util.queue import Queue
 
 
@@ -52,9 +52,8 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
             reduce_ray_remote_args["scheduling_strategy"] = "SPREAD"
 
         process_fragment_task = cached_remote_fn(process_fragment)
-        reduce_task = cached_remote_fn(self._exchange_spec.reduce)
 
-        split_map_metadata = None
+        split_map_metadata = [None]
 
         # # Each ref_bundle is coming from one ReadTask
         # # split_block_refs[i] = a list of subblocks split
@@ -75,8 +74,9 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
 
         queue = Queue()
         out_queue = Queue()  # for results and status
+        meta_queue = Queue()
         coordinator = Coordinator.options(**reduce_ray_remote_args).remote(
-            self._exchange_spec._reduce_args, queue, out_queue
+            *self._exchange_spec._reduce_args, queue, out_queue, meta_queue
         )
 
         t1 = time.perf_counter()
@@ -95,39 +95,43 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
 
         # Ensure all the fragments are taken care of
         while out_queue.qsize() < num_bundles:
-            print("waiting the queue to finish...", out_queue.qsize())
+            # print("waiting the queue to finish...", out_queue.qsize())
             time.sleep(0.2)
 
         t2 = time.perf_counter()
-        reduce_stage_time = t2 - t1
-        print("number of remaining tasks: ", queue.qsize())
+        map_stage_time = t2 - t1
+        print(f"map-stage taken {map_stage_time:0.3f}s")
 
+        # reduce_block_refs = []
+        # for i, reducer_ref in reducers.items():
+        #     mapping = ray.get(reducer_ref.get_mapping.remote())
+        #     for key, value in mapping.items():
+        #         print(key, type(value))
+        #         reduce_block_refs.append(value)
+
+        # Setup progress bar for the map tasks
+        # and fetch the metadata
+        sub_progress_bar_dict = ctx.sub_progress_bar_dict
+        bar_name = (
+            RepartitionByColTaskSpec.REPARTITION_BY_COLUMN_SPLIT_SUB_PROGRESS_BAR_NAME
+        )
+        assert bar_name in sub_progress_bar_dict, sub_progress_bar_dict
+        map_bar = sub_progress_bar_dict[bar_name]
+
+        split_map_metadata: List[BlockMetadata] = []
+        n = meta_queue.qsize()
+        while meta_queue.qsize() > 0:
+            meta = meta_queue.get()
+            split_map_metadata.extend(meta)
+            map_bar.update(len(split_map_metadata), total=n)
+
+        print("number of remaining tasks: ", queue.qsize())
         message_counts = ray.get(coordinator.get_message_counts.remote())
         print("number of messages per fragment = ", message_counts)
         message_counts_after_end = sum(
             ray.get(coordinator.get_message_counts_after_end.remote()).values()
         )
         print("number of messages after end = ", message_counts_after_end)
-
-        # coordinator.close.remote()
-
-        reducers = ray.get(coordinator.get_reducers.remote())
-        for i, reducer_ref in reducers:
-            mapping = ray.get(reducer_ref.get_mapping().remote())
-            print(i, mapping)
-
-        reduce_block_refs = []
-        reduce_metadata = []
-
-        # # Setup progress bar for the map tasks
-        # # and fetch the metadata
-        # sub_progress_bar_dict = ctx.sub_progress_bar_dict
-        # bar_name = (
-        #     RepartitionByColTaskSpec.REPARTITION_BY_COLUMN_SPLIT_SUB_PROGRESS_BAR_NAME
-        # )
-        # assert bar_name in sub_progress_bar_dict, sub_progress_bar_dict
-        # map_bar = sub_progress_bar_dict[bar_name]
-        # split_map_metadata = map_bar.fetch_until_complete(map_bar)
 
         # # Submit and schedule reduce tasks
         # reduce_return = [
@@ -142,12 +146,24 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
 
         # # Setup progress bar for the reduce tasks
         # # and fetch the metadata
-        # sub_progress_bar_dict = ctx.sub_progress_bar_dict
-        # bar_name = (
-        #     RepartitionByColTaskSpec.REPARTITION_BY_COLUMN_MERGE_SUB_PROGRESS_BAR_NAME
-        # )
-        # assert bar_name in sub_progress_bar_dict, sub_progress_bar_dict
-        # reduce_bar = sub_progress_bar_dict[bar_name]
+        sub_progress_bar_dict = ctx.sub_progress_bar_dict
+        bar_name = (
+            RepartitionByColTaskSpec.REPARTITION_BY_COLUMN_MERGE_SUB_PROGRESS_BAR_NAME
+        )
+        assert bar_name in sub_progress_bar_dict, sub_progress_bar_dict
+        reduce_bar = sub_progress_bar_dict[bar_name]
+
+        # reduce_bar.fetch_until_complete
+
+        reduce_block_refs = []
+        reduce_metadata = []
+        n = out_queue.qsize()
+        while out_queue.qsize() > 0:
+            idx, key, block, meta = out_queue.get()
+            # print(idx, key)
+            reduce_block_refs.append(block)
+            reduce_metadata.append(meta)
+            reduce_bar.update(len(reduce_metadata), total=n)
 
         # reduce_block_refs, reduce_metadata = zip(*reduce_return)
         # reduce_metadata = reduce_bar.fetch_until_complete(list(reduce_metadata))
@@ -190,7 +206,7 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
             output.append(
                 RefBundle([(block, meta)], owns_blocks=input_owned_by_consumer)
             )
-        stats = {
+        stats: StatsDict = {
             "split": split_map_metadata,
             "reduce": reduce_metadata,
         }

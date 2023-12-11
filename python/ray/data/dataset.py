@@ -1118,7 +1118,7 @@ class Dataset:
     @AllToAllAPI
     def repartition_by(
         self,
-        keys: Union[str, List[str], None] = None,
+        keys: Union[str, List[str]],
     ) -> "Dataset":
         """Repartition the :class:`Dataset` into :ref:`blocks <dataset_concept>` with one or
         more column value completely contained.
