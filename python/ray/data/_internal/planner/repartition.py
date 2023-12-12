@@ -1,5 +1,5 @@
 from functools import partial
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ray.data._internal.execution.interfaces import (
     AllToAllTransformFn,
@@ -84,6 +84,7 @@ def generate_repartition_fn(
 
 def generate_repartition_by_col_fn(
     keys: SortKey,
+    ray_remote_args: Optional[Dict[str, Any]] = None,
 ) -> AllToAllTransformFn:
     """Generate function to partition blocks based on the specified key column
 
@@ -101,7 +102,13 @@ def generate_repartition_by_col_fn(
     ) -> Tuple[List[RefBundle], StatsDict]:
         repartition_by_col_spec = RepartitionByColTaskSpec(keys.get_columns())
         scheduler = SplitRepartitionByColTaskScheduler(repartition_by_col_spec)
-        return scheduler.execute(refs, output_num_blocks=None, ctx=ctx)
+        return scheduler.execute(
+            refs,
+            output_num_blocks=None,
+            ctx=ctx,
+            map_ray_remote_args=ray_remote_args,
+            reduce_ray_remote_args=ray_remote_args,
+        )
 
     # NOTE: use partial function to avoid UnboundLocalError. See SortTaskSpec
     return partial(repartition_by_col_fn, keys)

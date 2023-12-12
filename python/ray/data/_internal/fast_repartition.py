@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 import ray
 from ray.data._internal.block_list import BlockList
@@ -117,5 +117,5 @@ def fast_repartition(
     return BlockList(new_blocks, new_metadata, owned_by_consumer=owned_by_consumer), {}
 
 
-def repartition_by_column():
+def repartition_by_column(blocks, keys, ctx, ray_remote_args) -> Tuple[BlockList, Dict]:
     raise NotImplementedError

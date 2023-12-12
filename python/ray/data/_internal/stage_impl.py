@@ -94,24 +94,31 @@ class RepartitionStage(AllToAllStage):
 class RepartitionByColStage(AllToAllStage):
     """Implementation of `Dataset.repartition_by()`."""
 
-    def __init__(self, sort_key: "SortKey"):
+    def __init__(
+        self,
+        keys: SortKey,
+        ray_remote_args: Optional[Dict[str, Any]] = None,
+    ):
         def do_repartition_by_column(
             block_list,
             ctx: TaskContext,
             clear_input_blocks: bool,
             *_,
-        ):
+        ) -> Tuple[BlockList, Dict]:
             if clear_input_blocks:
                 blocks = block_list.copy()
                 block_list.clear()
             else:
                 blocks = block_list
-            return repartition_by_column(blocks, sort_key, ctx)
+            return repartition_by_column(blocks, keys, ctx, ray_remote_args)
 
         super().__init__(
-            "RepartitionByColStage",
-            None,  # num_blocks ?
-            do_repartition_by_column,
+            name="RepartitionByColStage",
+            num_blocks=None,
+            fn=do_repartition_by_column,
+            supports_block_udf=False,
+            block_udf=None,
+            remote_args=ray_remote_args,
             sub_stage_names=["RepartitionByColStage"],
         )
 

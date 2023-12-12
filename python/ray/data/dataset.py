@@ -1119,6 +1119,7 @@ class Dataset:
     def repartition_by(
         self,
         keys: Union[str, List[str]],
+        **ray_remote_args,
     ) -> "Dataset":
         """Repartition the :class:`Dataset` into :ref:`blocks <dataset_concept>` with one or
         more column value completely contained.
@@ -1138,13 +1139,19 @@ class Dataset:
             The repartitioned :class:`Dataset`.
         """  # noqa: E501
         partition_keys = SortKey(keys, descending=False)
-        plan = self._plan.with_stage(RepartitionByColStage(partition_keys))
+        plan = self._plan.with_stage(
+            RepartitionByColStage(
+                partition_keys,
+                ray_remote_args,
+            ),
+        )
 
         logical_plan = self._logical_plan
         if logical_plan is not None:
             op = RepartitionByCol(
                 logical_plan.dag,
                 keys=partition_keys,
+                ray_remote_args=ray_remote_args,
             )
             logical_plan = LogicalPlan(op)
         return Dataset(plan, logical_plan)

@@ -111,6 +111,7 @@ class RepartitionByCol(AbstractAllToAll):
         self,
         input_op: LogicalOperator,
         keys: SortKey,
+        ray_remote_args: Optional[Dict[str, Any]] = None,
     ):
         sub_progress_bar_names = [
             RepartitionByColTaskSpec.REPARTITION_BY_COLUMN_SPLIT_SUB_PROGRESS_BAR_NAME,
@@ -121,6 +122,7 @@ class RepartitionByCol(AbstractAllToAll):
             input_op,
             num_outputs=None,
             sub_progress_bar_names=sub_progress_bar_names,
+            ray_remote_args=ray_remote_args,
         )
         self._keys = keys
 

@@ -207,7 +207,7 @@ class Reducer:
 
 
 # TODO: need to figure out how to putting item with different idx into the in_queue
-@ray.remote
+@ray.remote(num_cpus=0)
 class Coordinator:
     """Actor that coordinates between data producers and reducers.
 

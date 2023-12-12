@@ -2,6 +2,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import ray
+from ray.data._internal.dataset_logger import DatasetLogger
 from ray.data._internal.execution.interfaces import RefBundle, TaskContext
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskScheduler
 from ray.data._internal.planner.exchange.repartition_by_col_task_spec import (
@@ -13,20 +14,47 @@ from ray.data._internal.stats import StatsDict
 from ray.data.block import BlockMetadata
 from ray.util.queue import Queue
 
+logger = DatasetLogger(__name__)
+
 
 # The code structure follows SplitRepartitionTaskScheduler
 # which uses a custom map function instead of the ExchangeTaskSpec
 class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
     """
-    The split (non-shuffle) repartition scheduler based on a column.
+    Task scheduler for (non-shuffle) repartition by column.
 
-    Map-stage: split the blocks
+    Implementation:
 
-    Reduce-stage: merge the blocks with the same key
+    Repartition-by-column is used to ensure the group boundaries
+    are aligned with the block boundaries. This means that each
+    group is fully contained in N blocks. We assume the keys are
+    continuous within each block before repartition. This is not
+    intended to be a general groupby ops.
 
-    See `RepartitionByColTaskSpec` for the details of implementation.
+    1. Map-stage: each block is split into blocks with a single
+    group. For example, a dataset with N input blocks and K groups,
+    the output of the map stage will be between max(N, K) and N * K,
+    depending on how many splits per block.
 
+    2. Merge-stage: Given a list of mapped-blocks, we merge them
+    if they belong to the same group. The output of this stage is
+    a list of blocks with a single group.
+
+    Note:
+        By default, We do not explicitly sort the blocks.
     """
+
+    # TODO: Preserve the ordering of the input blocks. A naive implementation
+    # is to add a single-value column to label the ordering
+    # TODO: Allow control of target_max_block_size
+    # For target_max_block_size, it could be implemented in both map
+    # and reduce stages.
+    # TODO: Allow setting output_num_blocks. When it is smaller than the
+    # number of groups, each output block may contain more than one group
+    # On the other hand, if output_num_blocks is large, one group may be
+    # split into multiple blocks. User should have control to this behavior
+    # TODO: Allow sorting within the block (based on a column other than the
+    # partition key). See Spark RDD's repartitionAndSortWithinPartitions
 
     def execute(
         self,
@@ -53,28 +81,11 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
 
         process_fragment_task = cached_remote_fn(process_fragment)
 
-        split_map_metadata = [None]
-
-        # # Each ref_bundle is coming from one ReadTask
-        # # split_block_refs[i] = a list of subblocks split
-        # # split_metadata = a flattened list of metadata
-        # split_block_refs: List[List[ObjectRef[Block]]] = []
-        # split_metadata: List[BlockMetadata] = []
-        # for ref_bundle in refs:
-        #     blocks_ref = [block for block, _ in ref_bundle.blocks]
-
-        #     sub_block_refs, metadata_refs = split_blocks_task.options(
-        #         **map_ray_remote_args,
-        #         num_options=2,
-        #     ).remote(blocks_ref, *self._exchange_spec._map_args)
-        #     split_block_refs.extend(sub_block_refs)
-        #     split_metadata.extend(metadata_refs)
-
         num_bundles = len(refs)
 
         queue = Queue()
-        out_queue = Queue()  # for results and status
-        meta_queue = Queue()
+        out_queue = Queue()  # for passing map results into coordinator
+        meta_queue = Queue()  # output as a flattened list of metadata
         coordinator = Coordinator.options(**reduce_ray_remote_args).remote(
             *self._exchange_spec._reduce_args, queue, out_queue, meta_queue
         )
@@ -82,6 +93,10 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
         t1 = time.perf_counter()
         # Perform map-task to all the fragments and submit the output to a queue.
         # Coordinator then reads the queue
+
+        # Each ref_bundle is coming from one ReadTask
+        # split_block_refs[i] = a list of subblocks split
+
         task_refs = []
         for bundle_id, ref_bundle in enumerate(refs):
             blocks_ref = [block for block, _ in ref_bundle.blocks]
@@ -90,17 +105,20 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
             ).remote(bundle_id, blocks_ref, queue, *self._exchange_spec._map_args)
             task_refs.append(ref)
 
-        print(f"Finished submitting map-tasks for {bundle_id+1} fragments")
-        print(ray.get(task_refs))
-
         # Ensure all the fragments are taken care of
         while out_queue.qsize() < num_bundles:
             # print("waiting the queue to finish...", out_queue.qsize())
             time.sleep(0.2)
 
+        _logger = logger.get_logger()
+        _logger.debug(f"Finished submitting map-tasks for {bundle_id+1} fragments")
+
+        # not sure if needed
+        ray.get(task_refs)
+
         t2 = time.perf_counter()
         map_stage_time = t2 - t1
-        print(f"map-stage taken {map_stage_time:0.3f}s")
+        _logger.debug(f"map-stage taken {map_stage_time:0.3f}s")
 
         # reduce_block_refs = []
         # for i, reducer_ref in reducers.items():
@@ -125,24 +143,13 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
             split_map_metadata.extend(meta)
             map_bar.update(len(split_map_metadata), total=n)
 
-        print("number of remaining tasks: ", queue.qsize())
+        _logger.debug("number of remaining tasks: %d", queue.qsize())
         message_counts = ray.get(coordinator.get_message_counts.remote())
-        print("number of messages per fragment = ", message_counts)
+        _logger.debug("number of messages per fragment = %d", message_counts)
         message_counts_after_end = sum(
             ray.get(coordinator.get_message_counts_after_end.remote()).values()
         )
-        print("number of messages after end = ", message_counts_after_end)
-
-        # # Submit and schedule reduce tasks
-        # reduce_return = [
-        #     reduce_task.options(**reduce_ray_remote_args, num_returns=2).remote(
-        #         *self._exchange_spec._reduce_args,
-        #         *split_block_refs[j],
-        #     )
-        #     for j in range(output_num_blocks)
-        #     # Only process splits which contain blocks.
-        #     if len(split_block_refs[j]) > 0
-        # ]
+        _logger.debug("number of messages after end = %d", message_counts_after_end)
 
         # # Setup progress bar for the reduce tasks
         # # and fetch the metadata
@@ -171,7 +178,10 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
         #     reduce_metadata
         # )
 
-        # # Handle empty blocks.
+        # TODO: figure out if we need to fill in empty blocks
+        # since output_num_blocks is None..
+
+        # Fill empty blocks.
         # if len(reduce_block_refs) < output_num_blocks:
         #     import pyarrow as pa
 
@@ -207,8 +217,10 @@ class SplitRepartitionByColTaskScheduler(ExchangeTaskScheduler):
                 RefBundle([(block, meta)], owns_blocks=input_owned_by_consumer)
             )
         stats: StatsDict = {
-            "split": split_map_metadata,
+            # "split": split_map_metadata,
             "reduce": reduce_metadata,
         }
+
+        logger.get_logger().info("number of items in queue: %d", queue.qsize())
 
         return (output, stats)
