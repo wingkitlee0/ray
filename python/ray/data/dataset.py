@@ -43,6 +43,7 @@ from ray.data._internal.logical.operators.all_to_all_operator import (
     RandomShuffle,
     Repartition,
     Sort,
+    SplitBlocksByColumn,
 )
 from ray.data._internal.logical.operators.input_data_operator import InputData
 from ray.data._internal.logical.operators.map_operator import (
@@ -76,6 +77,7 @@ from ray.data._internal.stage_impl import (
     RandomShuffleStage,
     RepartitionStage,
     SortStage,
+    SplitBlocksByStage,
     ZipStage,
 )
 from ray.data._internal.stats import DatasetStats, DatasetStatsSummary, StatsManager
@@ -1759,6 +1761,43 @@ class Dataset:
             )
 
         return self.split_at_indices(split_indices)
+
+    @AllToAllAPI
+    def split_blocks_by(
+        self, keys: Union[str, List[str]], ray_remote_args: Dict[str, Any] = None
+    ) -> "Dataset":
+        """Split the :ref:`blocks <dataset_concept>` of this :class:`Dataset` into
+        one more sub-blocks based on the columns.
+
+        This is an experimental API for testing out splitting blocks in streaming
+        exexcution.
+
+        Examples:
+            >>> import ray
+            >>> ds = ray.data.from_items([1, 1, 1, 2, 2, 2, 3, 3, 3], parallelism=1)
+            >>> ds.split_blocks_by("items").num_blocks()
+            3
+
+        Time complexity: O(dataset size / parallelism)
+
+        Args:
+            keys: one or more columns for splitting
+
+        Returns:
+            The repartitioned :class:`Dataset`.
+        """  # noqa: E501
+
+        plan = self._plan.with_stage(SplitBlocksByStage(keys))
+
+        logical_plan = self._logical_plan
+        if logical_plan is not None:
+            op = SplitBlocksByColumn(
+                logical_plan.dag,
+                keys=keys,
+                ray_remote_args=ray_remote_args,
+            )
+            logical_plan = LogicalPlan(op)
+        return Dataset(plan, logical_plan)
 
     @ConsumptionAPI
     def train_test_split(

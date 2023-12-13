@@ -1,5 +1,5 @@
 import itertools
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import ray
 from ray.data._internal.block_list import BlockList
@@ -14,6 +14,7 @@ from ray.data._internal.shuffle_and_partition import (
 )
 from ray.data._internal.sort import SortKey, sort_impl
 from ray.data._internal.split import _split_at_index, _split_at_indices
+from ray.data._internal.split_blocks_by_col import split_blocks_by_column
 from ray.data.block import (
     Block,
     BlockAccessor,
@@ -159,6 +160,30 @@ class RandomShuffleStage(AllToAllStage):
             supports_block_udf=True,
             remote_args=remote_args,
             sub_stage_names=["ShuffleMap", "ShuffleReduce"],
+        )
+
+
+class SplitBlocksByStage(AllToAllStage):
+    """Implementation of `Dataset.split_block_by()`."""
+
+    def __init__(self, keys: Union[str, List[str]]):
+        def do_split_blocks_by(
+            block_list: BlockList,
+            ctx: TaskContext,
+            clear_input_blocks: bool,
+            *_,
+        ) -> Tuple[BlockList, dict]:
+            if clear_input_blocks:
+                blocks = block_list.copy()
+                block_list.clear()
+            else:
+                blocks = block_list
+            return split_blocks_by_column(blocks, keys, ctx)
+
+        super().__init__(
+            name="SplitBlocksByColumn",
+            num_blocks=None,
+            fn=do_split_blocks_by,
         )
 
 
