@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from ray.data._internal.logical.interfaces import LogicalOperator
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskSpec
 from ray.data._internal.planner.exchange.shuffle_task_spec import ShuffleTaskSpec
 from ray.data._internal.planner.exchange.sort_task_spec import SortTaskSpec
+from ray.data._internal.planner.exchange.split_task_spec import SplitTaskSpec
 from ray.data._internal.sort import SortKey
 from ray.data.aggregate import AggregateFn
 
@@ -99,6 +100,28 @@ class Repartition(AbstractAllToAll):
             sub_progress_bar_names=sub_progress_bar_names,
         )
         self._shuffle = shuffle
+
+
+class SplitBlocksByColumn(AbstractAllToAll):
+    """Logical operator for repartition."""
+
+    def __init__(
+        self,
+        input_op: LogicalOperator,
+        keys: Union[str, List[str]],
+        ray_remote_args: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            "SplitBlocksByColumn",
+            input_op,
+            num_outputs=None,
+            sub_progress_bar_names=[
+                SplitTaskSpec.SPLIT_SUB_PROGRESS_BAR_NAME,
+                SplitTaskSpec.MERGE_SUB_PROGRESS_BAR_NAME,
+            ],
+            ray_remote_args=ray_remote_args,
+        )
+        self._keys = keys
 
 
 class Sort(AbstractAllToAll):
