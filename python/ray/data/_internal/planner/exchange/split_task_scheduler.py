@@ -1,17 +1,13 @@
 from typing import Any, Dict, List, Optional, Tuple
 
-
 import ray
 from ray.data._internal.execution.interfaces import RefBundle, TaskContext
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskScheduler
-
+from ray.data._internal.planner.exchange.split_task_spec import SplitTaskSpec
 from ray.data._internal.remote_fn import cached_remote_fn
-
 from ray.data._internal.stats import StatsDict
 from ray.data.block import Block, BlockAccessor, BlockMetadata
 from ray.types import ObjectRef
-
-from ray.data._internal.planner.exchange.split_task_spec import SplitTaskSpec
 
 
 class SplitTaskScheduler(ExchangeTaskScheduler):
@@ -53,10 +49,11 @@ class SplitTaskScheduler(ExchangeTaskScheduler):
         split_task = cached_remote_fn(self._exchange_spec.map)
         reduce_task = cached_remote_fn(self._exchange_spec.reduce)
 
+        # list of (ref_id, block_id, block_ref, meta)
         blocks_with_metadata: List[Tuple[ObjectRef[Block], BlockMetadata]] = []
-        for ref_bundle in refs:
-            blocks_with_metadata.extend(ref_bundle.blocks)
-
+        for i, ref_bundle in enumerate(refs):
+            for j, (b, m) in enumerate(ref_bundle.blocks):
+                blocks_with_metadata.append((i, j, b, m))
 
         sub_progress_bar_dict = ctx.sub_progress_bar_dict
         bar_name = SplitTaskSpec.SPLIT_SUB_PROGRESS_BAR_NAME
@@ -64,45 +61,70 @@ class SplitTaskScheduler(ExchangeTaskScheduler):
         map_bar = sub_progress_bar_dict[bar_name]
 
         split_map_out: List[List] = [
-            list(split_task.options(
-                **map_ray_remote_args,
-                num_returns="streaming",
-            ).remote(i, block, -1, *self._exchange_spec._map_args))
-            for i, (block, _) in enumerate(blocks_with_metadata)
+            list(
+                split_task.options(
+                    **map_ray_remote_args,
+                    num_returns="streaming",
+                ).remote(i, block, -1, *self._exchange_spec._map_args)
+            )
+            for i, (j, k, block, _) in enumerate(blocks_with_metadata)
         ]
 
         # split_metadata = list of metadata
-        split_block_refs = []  # list of list
-        split_metadata = []   # list of metadata
+        split_block_refs: List[List[ObjectRef]] = []  # list of list
+        split_metadata = []  # list of metadata
+        split_keys = []  # list of refs (of list)
         output_num_blocks = 0
         for i, refs in enumerate(split_map_out):
-            output_num_blocks += len(refs) - 1
-            split_metadata.append(refs[-1])
-            split_block_refs.append(refs[:-1])
-
+            output_num_blocks += len(refs) - 2
+            split_block_refs.append(refs[:-2])
+            split_metadata.append(refs[-2])
+            split_keys.append(refs[-1])
 
         split_metadata = map_bar.fetch_until_complete(split_metadata)
+        split_keys: List[List[Tuple]] = map_bar.fetch_until_complete(split_keys)
+        # print(split_keys)
+        print("output_num_blocks = ", output_num_blocks)
+        print("len = ", sum([len(s) for s in split_keys]))
 
         sub_progress_bar_dict = ctx.sub_progress_bar_dict
         bar_name = SplitTaskSpec.MERGE_SUB_PROGRESS_BAR_NAME
         assert bar_name in sub_progress_bar_dict, sub_progress_bar_dict
         reduce_bar = sub_progress_bar_dict[bar_name]
 
-        # split_block_refs is a list of list
+        # # split_block_refs is a list of list
+        # reduce_block_refs = []  # flattened list
+        # reduce_metadata = []
+        # for blocks_to_reduce in split_block_refs:
+        #     for block_to_reduce in blocks_to_reduce:
+        #         refs = list(
+        #             reduce_task
+        #             .options(**reduce_ray_remote_args, num_returns="streaming")
+        #             .remote(*self._exchange_spec._reduce_args, block_to_reduce, partial_reduce=False)
+        #         )
+        #         reduce_metadata.append(refs[-1])
+        #         reduce_block_refs.extend(refs[:-1])
+
+        # reduce_metadata = reduce_bar.fetch_until_complete(list(reduce_metadata))
+
+        mapping = {}
+        for merge_blocks, merge_keys in zip(split_block_refs, split_keys):
+            for block, group in zip(merge_blocks, merge_keys):
+                if group in mapping:
+                    mapping[group].append(block)
+                else:
+                    mapping[group] = [block]
+
         reduce_block_refs = []  # flattened list
         reduce_metadata = []
-        for blocks_to_reduce in split_block_refs:
-            for block_to_reduce in blocks_to_reduce:
-                refs = list(
-                    reduce_task
-                    .options(**reduce_ray_remote_args, num_returns="streaming")
-                    .remote(*self._exchange_spec._reduce_args, block_to_reduce, partial_reduce=False)
-                )
-                reduce_metadata.append(refs[-1])
-                reduce_block_refs.extend(refs[:-1])
+        for blocks in mapping.values():
+            ref, meta_ref = reduce_task.options(
+                **reduce_ray_remote_args, num_returns=2
+            ).remote(*self._exchange_spec._reduce_args, *blocks)
+            reduce_block_refs.append(ref)
+            reduce_metadata.append(meta_ref)
 
         reduce_metadata = reduce_bar.fetch_until_complete(list(reduce_metadata))
-
 
         # Handle empty blocks.
         if len(reduce_block_refs) < output_num_blocks:
