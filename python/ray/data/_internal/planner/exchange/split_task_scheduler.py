@@ -3,7 +3,7 @@ import functools
 import itertools
 from collections import deque
 from math import ceil
-from typing import Any, Callable, Deque, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, Iterator, List, Optional, Tuple, TypeVar
 
 import numpy as np
 import pyarrow as pa
@@ -17,36 +17,24 @@ from ray.data._internal.stats import StatsDict
 from ray.data.block import Block, BlockAccessor, BlockExecStats, BlockMetadata
 from ray.types import ObjectRef
 
+KeyType = TypeVar("KeyType")
 
-def split_table(item: pa.Table, key="g", include_key: bool = False) -> Deque[pa.Table]:
+# TODO: support string key type
+# TODO: support multiple keys
+def split_pyarrow_table(item: pa.Table, key="g") -> Deque[Tuple[KeyType, pa.Table]]:
     arr = item.column(key).to_numpy()
-    # print(f"split: {arr}")
     indices = np.hstack([[0], np.where(np.diff(arr) != 0)[0] + 1, [len(arr)]])
     lengths = np.diff(indices)
 
     if len(indices) == 1:
-        # no split
-        if include_key:
-            return deque([(arr[0], item)])
-        else:
-            return deque([item])
+        return deque([(arr[0], item)])
 
-    if include_key:
-        return deque(
-            [
-                (arr[start], item.slice(start, length))
-                for start, length in zip(indices[:-1], lengths)
-            ]
-        )
-    else:
-        return deque(
-            [item.slice(start, length) for start, length in zip(indices[:-1], lengths)]
-        )
-
-
-def split_block_of_list(item: Any) -> Deque[list[int]]:
-    indices = np.where(np.diff(item) != 0)[0] + 1
-    return deque(list(b) for b in np.split(item, indices))
+    return deque(
+        [
+            (arr[start], item.slice(start, length))
+            for start, length in zip(indices[:-1], lengths)
+        ]
+    )
 
 
 def split_blocks(
@@ -79,14 +67,15 @@ class Coordinator:
     async def split_task(self, blocks, prev_coordinator: "Coordinator" = None):
         block_meta = []
         stats = BlockExecStats.builder()
-        for block in split_blocks(blocks, self.split_fn):
-            meta = BlockAccessor.for_block(block).get_metadata(
-                input_files=None,
-                exec_stats=stats.build(),
-            )
-            await self.queue.put(block)
-            block_meta.append(meta)
-            stats = BlockExecStats.builder()
+        for block in blocks:
+            for subblock in self.split_fn(ray.get(block)):
+                meta = BlockAccessor.for_block(subblock).get_metadata(
+                    input_files=None,
+                    exec_stats=stats.build(),
+                )
+                await self.queue.put(block)
+                block_meta.append(meta)
+                stats = BlockExecStats.builder()
         else:
             stats.build()
 
@@ -243,7 +232,7 @@ class SplitTaskScheduler(ExchangeTaskScheduler):
             merger = Merger.remote(3)
             output_blocks, keys, metadata = merger.execute.remote(
                 blocks,
-                split_fn=functools.partial(split_table, include_key=True),
+                split_fn=split_pyarrow_table,
                 merge_fn=merge_tables,
                 key_fn=lambda x: x[0],
             )
