@@ -16,9 +16,10 @@ class SplitTaskSpec(ExchangeTaskSpec):
     def __init__(
         self,
         keys: Union[str, List[str]],
+        num_actors: int,
     ):
         super().__init__(
-            map_args=[keys],
+            map_args=[keys, num_actors],
             reduce_args=[keys],
         )
 
