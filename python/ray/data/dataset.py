@@ -1764,7 +1764,11 @@ class Dataset:
 
     @AllToAllAPI
     def repartition_by_column(
-        self, keys: Union[str, List[str]], ray_remote_args: Dict[str, Any] = None
+        self,
+        keys: Union[str, List[str]],
+        concurrency: int = 3,
+        use_batching: bool = False,
+        ray_remote_args: Dict[str, Any] = None,
     ) -> "Dataset":
         """Split the :ref:`blocks <dataset_concept>` of this :class:`Dataset` into
         one more sub-blocks based on the columns.
@@ -1794,6 +1798,8 @@ class Dataset:
             op = RepartitionByColumn(
                 logical_plan.dag,
                 keys=keys,
+                num_actors_per_stream=concurrency,
+                use_batching=use_batching,
                 ray_remote_args=ray_remote_args,
             )
             logical_plan = LogicalPlan(op)

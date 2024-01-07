@@ -22,54 +22,10 @@ from ray.data.block import Block, BlockAccessor, BlockExecStats, BlockMetadata
 logger = DatasetLogger(__name__)
 
 
-# TODO: handle block metadata
-def _split_block(
-    block: Block, keys: Union[str, List[str]]
-) -> Tuple[List[Block], List[BlockMetadata]]:
-    """Splits a block by the given keys.
-
-    Args:
-        block: The block to split.
-        keys: The keys to split on.
-
-    Returns:
-        A tuple of the split blocks and their metadata.
-    """
-    stats = BlockExecStats.builder()
-
-    _block = BlockAccessor.batch_to_block(block)
-    block_accessor = BlockAccessor.for_block(ray.get(_block))
-    arr = block_accessor.to_numpy(keys)
-
-    if len(arr) == 0:
-        return None
-
-    _, split_indices = get_group_boundaries(arr)
-
-    if len(split_indices) == 1:
-        return [block_accessor.to_block()]
-
-    def get_out_block(accessor, start, end):
-        return accessor.slice(start, end)
-
-    slice_task = cached_remote_fn(get_out_block)
-
-    out_blocks = []
-    out_metadata = []
-    for start, end in zip(split_indices[:-1], split_indices[1:]):
-        out_block = slice_task.remote(block_accessor, start, end)
-        # out_block = block_accessor.slice(start, end)
-        # accessor = BlockAccessor.for_block(out_block)
-        meta = block_accessor.get_metadata(input_files=None, exec_stats=stats.build())
-        out_blocks.append(out_block)
-        out_metadata.append(meta)
-
-    return out_blocks, out_metadata
-
-
 def generate_repartition_by_column_fn(
     keys: Union[str, List[str]],
     num_actors_per_stream: int,
+    use_batching: bool,
     ray_remote_args: Optional[Dict[str, Any]],
 ) -> AllToAllTransformFn:
     """Generate function to split blocks by the specified key column"""
@@ -79,21 +35,15 @@ def generate_repartition_by_column_fn(
         ctx: TaskContext,
         keys: Union[str, List[str]],
         num_actors_per_stream: int,
+        use_batching: bool,
         ray_remote_args: Optional[Dict[str, Any]] = None,
     ) -> Tuple[List[RefBundle], StatsDict]:
-        blocks = []
-        metadata = []
-        for ref_bundle in refs:
-            for block, block_metadata in ref_bundle.blocks:
-                blocks.append(block)
-                metadata.append(block_metadata)
-        if len(blocks) == 0:
-            return (blocks, {})
-
-        task_spec = RepartitionByColumnTaskSpec(
-            keys=keys, num_actors_per_stream=num_actors_per_stream
+        repartition_task_spec = RepartitionByColumnTaskSpec(
+            keys=keys,
+            num_actors_per_stream=num_actors_per_stream,
+            use_batching=use_batching,
         )
-        scheduler = RepartitionByColumnTaskScheduler(task_spec)
+        scheduler = RepartitionByColumnTaskScheduler(repartition_task_spec)
 
         return scheduler.execute(
             refs=refs,
@@ -110,5 +60,6 @@ def generate_repartition_by_column_fn(
         fn,
         keys=keys,
         num_actors_per_stream=num_actors_per_stream,
+        use_batching=use_batching,
         ray_remote_args=ray_remote_args,
     )

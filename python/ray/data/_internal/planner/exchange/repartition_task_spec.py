@@ -17,9 +17,10 @@ class RepartitionByColumnTaskSpec(ExchangeTaskSpec):
         self,
         keys: Union[str, List[str]],
         num_actors_per_stream: int,
+        use_batching: bool,
     ):
         super().__init__(
-            map_args=[keys, num_actors_per_stream],
+            map_args=[keys, num_actors_per_stream, use_batching],
             reduce_args=[keys],
         )
 

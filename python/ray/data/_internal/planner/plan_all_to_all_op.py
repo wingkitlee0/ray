@@ -69,6 +69,7 @@ def plan_all_to_all_op(
         fn = generate_repartition_by_column_fn(
             op._keys,
             op._num_actors_per_stream,
+            op._use_batching,
             op._ray_remote_args,
         )
         target_max_block_size = DataContext.get_current().target_shuffle_max_block_size

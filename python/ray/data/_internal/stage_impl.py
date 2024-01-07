@@ -8,13 +8,13 @@ from ray.data._internal.execution.interfaces import TaskContext
 from ray.data._internal.fast_repartition import fast_repartition
 from ray.data._internal.plan import AllToAllStage
 from ray.data._internal.remote_fn import cached_remote_fn
+from ray.data._internal.repartition_by_column import repartition_by_column_stage_impl
 from ray.data._internal.shuffle_and_partition import (
     PushBasedShufflePartitionOp,
     SimpleShufflePartitionOp,
 )
 from ray.data._internal.sort import SortKey, sort_impl
 from ray.data._internal.split import _split_at_index, _split_at_indices
-from ray.data._internal.split_blocks_by_col import repartition_by_column
 from ray.data.block import (
     Block,
     BlockAccessor,
@@ -178,7 +178,7 @@ class RepartitionByColumnStage(AllToAllStage):
                 block_list.clear()
             else:
                 blocks = block_list
-            return repartition_by_column(blocks, keys, ctx)
+            return repartition_by_column_stage_impl(blocks, keys, ctx)
 
         super().__init__(
             name="RepartitionByColumn",
