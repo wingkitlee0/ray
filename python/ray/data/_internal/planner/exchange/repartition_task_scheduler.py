@@ -11,13 +11,16 @@ import pyarrow as pa
 import ray
 from ray.data._internal.execution.interfaces import RefBundle, TaskContext
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskScheduler
-from ray.data._internal.planner.exchange.split_task_spec import SplitTaskSpec
+from ray.data._internal.planner.exchange.repartition_task_spec import (
+    RepartitionTaskSpec,
+)
 from ray.data._internal.remote_fn import cached_remote_fn
 from ray.data._internal.stats import StatsDict
 from ray.data.block import Block, BlockAccessor, BlockExecStats, BlockMetadata
 from ray.types import ObjectRef
 
 KeyType = TypeVar("KeyType")
+
 
 # TODO: support string key type
 # TODO: support multiple keys
@@ -199,7 +202,7 @@ class Merger:
         return output, keys, metadata
 
 
-class SplitTaskScheduler(ExchangeTaskScheduler):
+class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
     """Split-by-column experiment"""
 
     def execute(

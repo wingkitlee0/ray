@@ -9,8 +9,12 @@ from ray.data._internal.execution.interfaces import (
     RefBundle,
     TaskContext,
 )
-from ray.data._internal.planner.exchange.split_task_scheduler import SplitTaskScheduler
-from ray.data._internal.planner.exchange.split_task_spec import SplitTaskSpec
+from ray.data._internal.planner.exchange.repartition_task_scheduler import (
+    RepartitionByColumnTaskScheduler,
+)
+from ray.data._internal.planner.exchange.repartition_task_spec import (
+    RepartitionByColumnTaskSpec,
+)
 from ray.data._internal.remote_fn import cached_remote_fn
 from ray.data._internal.stats import StatsDict
 from ray.data.block import Block, BlockAccessor, BlockExecStats, BlockMetadata
@@ -63,40 +67,10 @@ def _split_block(
     return out_blocks, out_metadata
 
 
-def generate_split_blocks_by_column_fn(
-    keys: Union[str, List[str]]
-) -> AllToAllTransformFn:
-    """Generate function to randomize order of blocks."""
-
-    def fn(
-        refs: List[RefBundle], context: TaskContext, keys: Union[str, List[str]]
-    ) -> Tuple[List[RefBundle], StatsDict]:
-        blocks_with_metadata = []
-        for ref_bundle in refs:
-            for block, meta in ref_bundle.blocks:
-                blocks_with_metadata.append((block, meta))
-
-        if len(blocks_with_metadata) == 0:
-            return refs, {}
-
-        input_owned = all(b.owns_blocks for b in refs)
-
-        output = []
-        meta_list = []
-        for block, meta in blocks_with_metadata:
-            subblocks, subblocks_meta = _split_block(block, keys)
-
-            for b, m in zip(subblocks, subblocks_meta):
-                meta_list.append(m)
-                output.append(RefBundle([(b, meta)], owns_blocks=input_owned))
-
-            return output, {"split": meta_list}
-
-    return partial(fn, keys=keys)
-
-
-def generate_split_blocks_by_column_fn2(
-    keys: Union[str, List[str]], ray_remote_args: Optional[Dict[str, Any]]
+def generate_repartition_by_column_fn(
+    keys: Union[str, List[str]],
+    num_actors_per_stream: int,
+    ray_remote_args: Optional[Dict[str, Any]],
 ) -> AllToAllTransformFn:
     """Generate function to split blocks by the specified key column"""
 
@@ -104,6 +78,7 @@ def generate_split_blocks_by_column_fn2(
         refs: List[RefBundle],
         ctx: TaskContext,
         keys: Union[str, List[str]],
+        num_actors_per_stream: int,
         ray_remote_args: Optional[Dict[str, Any]] = None,
     ) -> Tuple[List[RefBundle], StatsDict]:
         blocks = []
@@ -115,8 +90,10 @@ def generate_split_blocks_by_column_fn2(
         if len(blocks) == 0:
             return (blocks, {})
 
-        split_spec = SplitTaskSpec(keys=keys)
-        scheduler = SplitTaskScheduler(split_spec)
+        task_spec = RepartitionByColumnTaskSpec(
+            keys=keys, num_actors_per_stream=num_actors_per_stream
+        )
+        scheduler = RepartitionByColumnTaskScheduler(task_spec)
 
         return scheduler.execute(
             refs=refs,
@@ -129,4 +106,9 @@ def generate_split_blocks_by_column_fn2(
     # NOTE: use partial function to pass parameters to avoid error like
     # "UnboundLocalError: local variable ... referenced before assignment",
     # because `key` and `descending` variables are reassigned in `fn()`.
-    return partial(fn, keys=keys, ray_remote_args=ray_remote_args)
+    return partial(
+        fn,
+        keys=keys,
+        num_actors_per_stream=num_actors_per_stream,
+        ray_remote_args=ray_remote_args,
+    )

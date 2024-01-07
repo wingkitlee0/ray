@@ -14,7 +14,7 @@ from ray.data._internal.shuffle_and_partition import (
 )
 from ray.data._internal.sort import SortKey, sort_impl
 from ray.data._internal.split import _split_at_index, _split_at_indices
-from ray.data._internal.split_blocks_by_col import split_blocks_by_column
+from ray.data._internal.split_blocks_by_col import repartition_by_column
 from ray.data.block import (
     Block,
     BlockAccessor,
@@ -163,11 +163,11 @@ class RandomShuffleStage(AllToAllStage):
         )
 
 
-class SplitBlocksByStage(AllToAllStage):
+class RepartitionByColumnStage(AllToAllStage):
     """Implementation of `Dataset.split_block_by()`."""
 
     def __init__(self, keys: Union[str, List[str]]):
-        def do_split_blocks_by(
+        def do_repartition_by_column(
             block_list: BlockList,
             ctx: TaskContext,
             clear_input_blocks: bool,
@@ -178,12 +178,12 @@ class SplitBlocksByStage(AllToAllStage):
                 block_list.clear()
             else:
                 blocks = block_list
-            return split_blocks_by_column(blocks, keys, ctx)
+            return repartition_by_column(blocks, keys, ctx)
 
         super().__init__(
-            name="SplitBlocksByColumn",
+            name="RepartitionByColumn",
             num_blocks=None,
-            fn=do_split_blocks_by,
+            fn=do_repartition_by_column,
         )
 
 

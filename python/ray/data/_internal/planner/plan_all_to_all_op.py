@@ -8,17 +8,17 @@ from ray.data._internal.logical.operators.all_to_all_operator import (
     RandomizeBlocks,
     RandomShuffle,
     Repartition,
+    RepartitionByColumn,
     Sort,
-    SplitBlocksByColumn,
 )
 from ray.data._internal.planner.aggregate import generate_aggregate_fn
 from ray.data._internal.planner.random_shuffle import generate_random_shuffle_fn
 from ray.data._internal.planner.randomize_blocks import generate_randomize_blocks_fn
 from ray.data._internal.planner.repartition import generate_repartition_fn
-from ray.data._internal.planner.sort import generate_sort_fn
-from ray.data._internal.planner.split_blocks_by_column import (
-    generate_split_blocks_by_column_fn2,
+from ray.data._internal.planner.repartition_by_column import (
+    generate_repartition_by_column_fn,
 )
+from ray.data._internal.planner.sort import generate_sort_fn
 from ray.data.context import DataContext
 
 
@@ -65,8 +65,12 @@ def plan_all_to_all_op(
             op._shuffle,
             debug_limit_shuffle_execution_to_num_blocks,
         )
-    elif isinstance(op, SplitBlocksByColumn):
-        fn = generate_split_blocks_by_column_fn2(op._keys, op._ray_remote_args)
+    elif isinstance(op, RepartitionByColumn):
+        fn = generate_repartition_by_column_fn(
+            op._keys,
+            op._num_actors_per_stream,
+            op._ray_remote_args,
+        )
         target_max_block_size = DataContext.get_current().target_shuffle_max_block_size
     elif isinstance(op, Sort):
         debug_limit_shuffle_execution_to_num_blocks = (

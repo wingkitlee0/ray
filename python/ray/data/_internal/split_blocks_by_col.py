@@ -48,7 +48,7 @@ def _split_block(
     return out_blocks, out_metadata
 
 
-def split_blocks_by_column(
+def repartition_by_column(
     blocks: BlockList,
     keys: Union[str, List[str]],
     ctx: Optional[TaskContext] = None,

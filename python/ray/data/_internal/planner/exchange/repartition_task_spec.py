@@ -7,7 +7,7 @@ from ray.data.block import Block, BlockAccessor, BlockExecStats, BlockMetadata
 T = TypeVar("T")
 
 
-class SplitTaskSpec(ExchangeTaskSpec):
+class RepartitionByColumnTaskSpec(ExchangeTaskSpec):
     """Example ExchangeTaskSpec"""
 
     SPLIT_SUB_PROGRESS_BAR_NAME = "Split blocks by column"
@@ -16,10 +16,10 @@ class SplitTaskSpec(ExchangeTaskSpec):
     def __init__(
         self,
         keys: Union[str, List[str]],
-        num_actors: int,
+        num_actors_per_stream: int,
     ):
         super().__init__(
-            map_args=[keys, num_actors],
+            map_args=[keys, num_actors_per_stream],
             reduce_args=[keys],
         )
 
