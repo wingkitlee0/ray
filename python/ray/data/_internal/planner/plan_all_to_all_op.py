@@ -72,7 +72,8 @@ def plan_all_to_all_op(
             op._use_batching,
             op._ray_remote_args,
         )
-        target_max_block_size = DataContext.get_current().target_shuffle_max_block_size
+        # target_max_block_size = DataContext.get_current().target_max_block_size
+        # target_max_block_size = None
     elif isinstance(op, Sort):
         debug_limit_shuffle_execution_to_num_blocks = (
             DataContext.get_current().get_config(
