@@ -1,5 +1,6 @@
 import asyncio
 import itertools
+import time
 from collections import deque
 from math import ceil
 from typing import Any, Deque, Iterator, List, Tuple, Union
@@ -10,6 +11,7 @@ import pyarrow as pa
 import ray
 from ray.data._internal.dataset_logger import DatasetLogger
 from ray.data.block import BlockAccessor, BlockExecStats, BlockMetadata
+from ray.util.queue import Queue
 
 logger = DatasetLogger(__name__)
 
@@ -57,7 +59,6 @@ class Splitter:
         """Split a single table into multiple parts. Each part has the
         same group key.
         """
-        logger.get_logger().info(f"{self.name}: item-{self.item_count}, {len(item)=}")
         arr = item.column(key_column_name).to_numpy()
 
         # Find the indices where the key changes.
@@ -94,7 +95,8 @@ class Merger:
             logger.get_logger().info(key, block)
             yield list(np.concatenate(block))
 
-    def merge_tables(self, keys_and_blocks: List[Tuple[int, ray.ObjectRef]]):
+    @ray.method(num_returns=3)
+    def merge_tables(self, keys_and_blocks: List[Tuple]):
         """Merge pyarrow tables
 
         Neighboring tables with the same group key are concatenated. Similar to
@@ -115,8 +117,7 @@ class Merger:
             f"{self.name}: {len(keys)=}, {min(keys)=}, {max(keys)=}, {min(blks_len)=}, {max(blks_len)=}"
         )
 
-        all_keys = []
-        all_meta = []
+        all_blocks, all_metadata, all_keys = [], [], []
         for key, block_iterator in itertools.groupby(zip(keys, blks), lambda x: x[0]):
             stats = BlockExecStats.builder()
             blocks = [b for _, b in block_iterator]
@@ -128,13 +129,14 @@ class Merger:
                 input_files=None,
                 exec_stats=stats.build(),
             )
-            all_meta.append(meta)
-            yield block
-        yield all_meta
-        yield all_keys
+            all_blocks.append(block)
+            all_metadata.append(meta)
+            all_keys.append(key)
+
+        return all_blocks, all_metadata, all_keys
 
 
-@ray.remote(num_cpus=0, lifetime="detached")
+@ray.remote(num_cpus=0)
 class Actor:
     def __init__(self, idx, keys: str, world_size: int):
         self.idx = idx
@@ -155,7 +157,11 @@ class Actor:
         self.consume_ready = asyncio.Event()
 
         # For output
-        self.output_queue = asyncio.Queue()
+        # self.output_queue = asyncio.Queue()
+        self.output_queue = Queue()
+
+        self.splitter = Splitter.remote(self.idx)
+        self.merger = Merger.remote(self.idx)
 
     async def split(self, block_refs: List[ray.ObjectRef]) -> List[ray.ObjectRef]:
         """Split a list of blocks based on the group key.
@@ -164,11 +170,9 @@ class Actor:
         depending on the group key.
         """
 
-        splitter = Splitter.remote(self.idx)
-
         for ref in block_refs:
             splitted = []
-            async for item in splitter.split_pyarrow_table.remote(ref, self.keys):
+            async for item in self.splitter.split_pyarrow_table.remote(ref, self.keys):
                 splitted.append(item)
 
             # materialize the keys but keep the block refs
@@ -224,14 +228,17 @@ class Actor:
         logger.get_logger().info(f"{self.name}-consume: waiting for next left")
         next_left = await self.next_left.get()
         self.next_left.task_done()
-        logger.get_logger().info(f"{self.name}-consume: {next_left=}")
+        logger.get_logger().info(f"{self.name}-consume: next_left's key={next_left[0]}")
 
         self.splitted_blocks.append(next_left)
 
     async def merge(self):
-        logger.get_logger().info(f"{self.name}-consume: {self.is_right_most=}")
         if not self.is_right_most:
             await self.handle_right()
+        else:
+            logger.get_logger().info(
+                f"{self.name}-consume: right most. skipping boundary handling"
+            )
 
         logger.get_logger().info(
             f"{self.name}-consume: waiting for the signal to consume"
@@ -239,26 +246,55 @@ class Actor:
         await self.consume_ready.wait()
         logger.get_logger().info(f"{self.name}-consume: {len(self.splitted_blocks)=}")
 
-        merger = Merger.remote(self.idx)
-        async for item in merger.merge_tables.remote(self.splitted_blocks):
-            await self.output_queue.put(item)
-        await self.output_queue.put("done")
+        all_blocks, all_metadata, all_keys = self.merger.merge_tables.remote(
+            self.splitted_blocks
+        )
 
-    async def consume(self):
-        output = []
-        while True:
-            item = await self.output_queue.get()
-            self.output_queue.task_done()
-            if item == "done":
-                logger.get_logger().info(
-                    f"{self.name}-consume: finished with {len(output)} items."
-                )
-                # return output
-                keys = await output.pop()
-                metadata = await output.pop()
-                return list(zip(output, metadata, keys))
+        time_start = time.perf_counter()
+        all_blocks = await all_blocks
+        all_metadata = await all_metadata
+        all_keys = await all_keys
+        time_end = time.perf_counter()
+        logger.get_logger().info(
+            f"{self.name}-consume: {(time_end - time_start)=:.3f}s"
+        )
 
-            output.append(item)
+        for block, meta, key in zip(all_blocks, all_metadata, all_keys):
+            await self.output_queue.put_async((block, meta, key))
+        await self.output_queue.put_async("done")
+
+    def get_queue(self):
+        return self.output_queue
+
+    # # async def consume(self):
+    # #     output = []
+    # #     while True:
+    # #         # item = await self.output_queue.get()
+    # #         item = await self.output_queue.get_async()
+    # #         # self.output_queue.task_done()
+    # #         if item == "done":
+    # #             logger.get_logger().info(
+    # #                 f"{self.name}-consume: finished with {len(output)} items."
+    # #             )
+    # #             # return output
+    # #             keys = output.pop()
+    # #             metadata = output.pop()
+    # #             return list(zip(output, metadata, keys))
+
+    # #         output.append(item)
+
+    # def consume_iterator(self):
+    #     while True:
+    #         item = self.output_queue.get()
+    #         # self.output_queue.task_done()
+    #         if item == "done":
+    #             logger.get_logger().info(
+    #                 f"{self.name}-consume: finished with {len(output)} items."
+    #             )
+    #             # return output
+    #             keys = output.pop()
+    #             metadata = output.pop()
+    #             return list(zip(output, metadata, keys))
 
 
 async def repartition_by_column(
@@ -291,15 +327,70 @@ async def repartition_by_column(
         for actor, left_actor in zip(actors[1:], actors[:-1])
     ]
     merge_tasks = [actor.merge.remote() for actor in actors]
-    consume_tasks = [actor.consume.remote() for actor in actors]
+    consume_tasks = [actor.get_queue.remote() for actor in actors]
 
     await asyncio.gather(*split_tasks)
     await asyncio.gather(*boundary_tasks)
     await asyncio.gather(*merge_tasks)
-    # returns `num_actors` of batches (list of tuples)
-    batches = await asyncio.gather(*consume_tasks)
 
-    return batches
+    # returns `num_actors` of batches (list of tuples)
+    return consume_tasks
+
+
+@ray.remote(num_returns="streaming")
+def repartition_runner(
+    ref_id,
+    blocks,
+    map_args,
+    actors,
+):
+    queue_refs = asyncio.run(
+        repartition_by_column(
+            ref_id,
+            blocks,
+            *map_args,
+            actors,
+        )
+    )
+
+    all_metadata, all_keys = [], []
+    while queue_refs:
+        [ready], queue_refs = ray.wait(queue_refs)
+        queue: Queue = ray.get(ready)
+
+        logger.get_logger().info(f"queue has {queue.size()} elements")
+
+        metadata, keys = [], []
+        # while not queue.empty():
+        #     item = queue.get()
+        #     if item == "done":
+        #         break
+        #     else:
+        #         block, meta, key = item
+        #         metadata.append(meta)
+        #         keys.append(key)
+        #         yield block
+
+        items = queue.get_nowait_batch(queue.size())
+        items.pop()
+
+        for i, (block, meta, key) in enumerate(items):
+            if i == 0:
+                print(f"{type(block)=}, {type(meta)=}, {type(key)=}")
+            yield block
+            metadata.append(meta)
+            keys.append(key)
+
+        all_metadata.append(metadata)
+        all_keys.append(keys)
+
+    logger.get_logger().info(f"{len(all_metadata)} metadata")
+    logger.get_logger().info(f"{len(all_keys)} keys")
+
+    for metadata in all_metadata:
+        yield metadata
+    for keys in all_keys:
+        yield keys
 
 
 def repartition_by_column_stage_impl(blocks, keys, ctx):

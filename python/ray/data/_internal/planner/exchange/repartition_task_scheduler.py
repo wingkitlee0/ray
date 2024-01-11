@@ -1,4 +1,3 @@
-import asyncio
 import time
 from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
@@ -9,11 +8,8 @@ from ray.data._internal.planner.exchange.interfaces import ExchangeTaskScheduler
 from ray.data._internal.planner.exchange.repartition_task_spec import (
     RepartitionByColumnTaskSpec,
 )
-from ray.data._internal.remote_fn import cached_remote_fn
-from ray.data._internal.repartition_by_column import Actor, repartition_by_column
+from ray.data._internal.repartition_by_column import Actor, repartition_runner
 from ray.data._internal.stats import StatsDict
-from ray.data.block import Block, BlockAccessor, BlockExecStats, BlockMetadata
-from ray.types import ObjectRef
 
 logger = DatasetLogger(__name__)
 
@@ -52,72 +48,60 @@ class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
 
         keys, num_actors, use_batching = self._exchange_spec._map_args
 
-        if use_batching:
-            repartitioned_refs = []
-            all_actors = []
-            for ref_id, ref_bundle in enumerate(refs):
-                actors = [
-                    Actor.options(name=f"Actor-({ref_id, i})").remote(
-                        i, keys, num_actors
-                    )
-                    for i in range(num_actors)
-                ]
-                ref = asyncio.run(
-                    repartition_by_column(
-                        ref_id,
-                        [b for b, _ in ref_bundle.blocks],
-                        *self._exchange_spec._map_args,
-                        actors,
-                    )
-                )
-                all_actors.extend(actors)
-            repartitioned_refs.extend(ref)
-        else:
-            ref_id = 0
-            # drop the metadata
-            all_blocks = [b for ref_bundle in refs for b, _ in ref_bundle.blocks]
+        ref_id = 0
+        # drop the metadata
+        all_blocks = [b for ref_bundle in refs for b, _ in ref_bundle.blocks]
 
-            logger.get_logger().info(f"ref_id: {ref_id}, {len(all_blocks)=}")
+        logger.get_logger().info(f"ref_id: {ref_id}, {len(all_blocks)=}")
 
-            actors = [
-                Actor.options(name=f"Actor-({ref_id, i})").remote(i, keys, num_actors)
-                for i in range(num_actors)
-            ]
+        actors = [
+            Actor.options(name=f"Actor-({ref_id, i})").remote(i, keys, num_actors)
+            for i in range(num_actors)
+        ]
 
-            repartitioned_refs = asyncio.run(
-                repartition_by_column(
-                    ref_id,
-                    all_blocks,
-                    *self._exchange_spec._map_args,
-                    actors,
-                )
+        result_refs = list(
+            runner.remote(
+                ref_id,
+                all_blocks,
+                self._exchange_spec._map_args,
+                actors,
             )
+        )
 
         logger.get_logger().info(f"Finished repartitioning")
+        logger.get_logger().info(f"result_refs: {len(result_refs)}")
 
-        # Looping over num_actors
-        all_blocks, all_metadata, all_keys = [], [], []
-        for i, blocks_and_metadata in enumerate(repartitioned_refs):
-            _blocks, _metdata, _keys = [], [], []
-            for block, meta, key in blocks_and_metadata:
-                _blocks.append(block)
-                _metdata.append(meta)
-                _keys.append(key)
+        all_keys = []
+        for _ in range(num_actors):
+            all_keys.append(result_refs.pop())
 
-            logger.get_logger().info(
-                f"repartition-{i}: {len(_keys)=}, {min(_keys)=}, {max(_keys)=}"
-            )
+        all_metadata = []
+        for _ in range(num_actors):
+            all_metadata.append(result_refs.pop())
 
-            all_blocks.extend(
-                [
-                    RefBundle([(block, meta)], input_owned_by_consumer)
-                    for block, meta in zip(_blocks, _metdata)
-                ]
-            )
-            all_metadata.extend(_metdata)
-            all_keys.extend(_keys)
+        sub_progress_bar_dict = ctx.sub_progress_bar_dict
+        bar_name = RepartitionByColumnTaskSpec.SPLIT_SUB_PROGRESS_BAR_NAME
+        assert bar_name in sub_progress_bar_dict, sub_progress_bar_dict
+        map_bar = sub_progress_bar_dict[bar_name]
 
-        assert len(all_blocks) == len(all_metadata) == len(all_keys)
+        all_metadata = map_bar.fetch_until_complete(all_metadata)
+        all_metadata = [m for metadata in all_metadata for m in metadata]
+
+        all_keys = map_bar.fetch_until_complete(all_keys)
+        all_keys = [m for keys in all_keys for m in keys]
+
+        logger.get_logger().info(f"all_keys: {len(all_keys)}")
+        logger.get_logger().info(f"all_metadata: {len(all_metadata)}")
+        logger.get_logger().info(f"all_blocks: {len(result_refs)}")
+
+        all_blocks = [
+            RefBundle([(block, meta)], input_owned_by_consumer)
+            for block, meta in zip(result_refs, all_metadata)
+        ]
+
+        assert (
+            len(all_blocks) == len(all_metadata) == len(all_keys)
+        ), f"{len(all_blocks)=}, {len(all_metadata)=}, {len(all_keys)=}"
 
         logger.get_logger().info(f"number of output blocks = {len(all_blocks)}")
         logger.get_logger().info(f"number of keys = {len(all_keys)}")
