@@ -60,7 +60,7 @@ class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
         ]
 
         result_refs = list(
-            runner.remote(
+            repartition_runner.remote(
                 ref_id,
                 all_blocks,
                 self._exchange_spec._map_args,
