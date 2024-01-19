@@ -1,7 +1,7 @@
-from typing import Any, List, Tuple, TypeVar, Union
+from typing import List, Tuple, TypeVar, Union
 
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskSpec
-from ray.data.block import Block, BlockAccessor, BlockExecStats, BlockMetadata
+from ray.data.block import Block, BlockMetadata
 
 T = TypeVar("T")
 

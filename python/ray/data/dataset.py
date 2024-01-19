@@ -1673,7 +1673,7 @@ class Dataset:
             The repartitioned :class:`Dataset`.
         """  # noqa: E501
 
-        plan = self._plan.with_stage(RepartitionByColumnStage(keys))
+        plan = self._plan.copy()
 
         logical_plan = self._logical_plan
         if logical_plan is not None:

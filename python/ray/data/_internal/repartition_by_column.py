@@ -321,14 +321,3 @@ def repartition_runner(
     logger.get_logger().info(
         f"retreive results from actors: taken {(time_consume_end - time_consume_start):.3f}s"
     )
-
-    # num_rows = sum(ray.get([actor.get_input_num_rows.remote() for actor in actors]))
-    # logger.get_logger().info(f"{ref_id}: {num_rows=}")
-    # split_num_rows = sum(
-    #     ray.get([actor.get_split_num_rows.remote() for actor in actors])
-    # )
-    # logger.get_logger().info(f"{ref_id}: {split_num_rows=}")
-
-
-def repartition_by_column_stage_impl(blocks, keys, ctx):
-    raise NotImplementedError
