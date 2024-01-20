@@ -68,8 +68,7 @@ def plan_all_to_all_op(
     elif isinstance(op, RepartitionByColumn):
         fn = generate_repartition_by_column_fn(
             op._keys,
-            op._num_actors_per_stream,
-            op._use_batching,
+            op._concurrency,
             op._ray_remote_args,
         )
         target_max_block_size = None

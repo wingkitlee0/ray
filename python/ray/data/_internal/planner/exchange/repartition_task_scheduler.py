@@ -47,6 +47,7 @@ class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
             reduce_ray_remote_args = reduce_ray_remote_args.copy()
             reduce_ray_remote_args["scheduling_strategy"] = "SPREAD"
 
+        # TODO: currently, 'concurrency' only means number of actors.
         num_actors = self._exchange_spec._map_args[1]
 
         ref_id = 0

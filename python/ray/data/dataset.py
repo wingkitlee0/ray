@@ -1648,8 +1648,7 @@ class Dataset:
     def repartition_by_column(
         self,
         keys: Union[str, List[str]],
-        concurrency: int = 3,
-        use_batching: bool = False,
+        concurrency: Optional[int] = None,
         ray_remote_args: Dict[str, Any] = None,
     ) -> "Dataset":
         """Split the :ref:`blocks <dataset_concept>` of this :class:`Dataset` into
@@ -1668,6 +1667,9 @@ class Dataset:
 
         Args:
             keys: one or more columns for splitting
+            concurrency: The number of Ray workers to use concurrently. For a fixed-sized
+                worker pool of size ``n``, specify ``concurrency=n``. Autoscaling is not
+                currently supported.
 
         Returns:
             The repartitioned :class:`Dataset`.
@@ -1680,8 +1682,7 @@ class Dataset:
             op = RepartitionByColumn(
                 logical_plan.dag,
                 keys=keys,
-                num_actors_per_stream=concurrency,
-                use_batching=use_batching,
+                concurrency=concurrency,
                 ray_remote_args=ray_remote_args,
             )
             logical_plan = LogicalPlan(op)

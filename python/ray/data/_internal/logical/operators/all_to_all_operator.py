@@ -111,8 +111,7 @@ class RepartitionByColumn(AbstractAllToAll):
         self,
         input_op: LogicalOperator,
         keys: Union[str, List[str]],
-        num_actors_per_stream: int,
-        use_batching: bool = False,
+        concurrency: int,
         ray_remote_args: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(
@@ -126,8 +125,7 @@ class RepartitionByColumn(AbstractAllToAll):
             ray_remote_args=ray_remote_args,
         )
         self._keys = keys
-        self._num_actors_per_stream = num_actors_per_stream
-        self._use_batching = use_batching
+        self._concurrency = concurrency
 
 
 class Sort(AbstractAllToAll):

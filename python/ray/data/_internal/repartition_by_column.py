@@ -290,7 +290,9 @@ def repartition_runner(
         K lists of metadata. Finally, it yields K refs from each actor for the keys,
         i.e., K lists of keys.
     """
-    keys, num_actors, _ = map_args
+
+    # TODO: currently, 'concurrency' only means number of actors.
+    keys, num_actors = map_args
 
     if len(blocks) <= num_actors:
         num_actors = 1

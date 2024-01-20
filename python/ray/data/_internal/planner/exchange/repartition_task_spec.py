@@ -1,4 +1,4 @@
-from typing import List, Tuple, TypeVar, Union
+from typing import List, Optional, Tuple, TypeVar, Union
 
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskSpec
 from ray.data.block import Block, BlockMetadata
@@ -15,11 +15,10 @@ class RepartitionByColumnTaskSpec(ExchangeTaskSpec):
     def __init__(
         self,
         keys: Union[str, List[str]],
-        num_actors_per_stream: int,
-        use_batching: bool,
+        concurrency: Optional[int],
     ):
         super().__init__(
-            map_args=[keys, num_actors_per_stream, use_batching],
+            map_args=[keys, concurrency],
             reduce_args=[keys],
         )
 
