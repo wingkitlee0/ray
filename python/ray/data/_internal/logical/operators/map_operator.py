@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Dict, Iterable, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from ray.data._internal.compute import ComputeStrategy, TaskPoolStrategy
 from ray.data._internal.dataset_logger import DatasetLogger
@@ -231,3 +231,35 @@ class FlatMap(AbstractUDFMap):
     @property
     def can_modify_num_rows(self) -> bool:
         return True
+
+
+class RepartitionByColumn(AbstractUDFMap):
+    """Logical operator for repartition_by_column."""
+
+    def __init__(
+        self,
+        input_op: LogicalOperator,
+        keys: Union[str, List[str]],
+        compute: Optional[Union[str, ComputeStrategy]] = None,
+        ray_remote_args: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            "RepartitionByColumn",
+            input_op,
+            fn=lambda: None,
+            fn_args=None,
+            fn_kwargs=None,
+            fn_constructor_args=None,
+            fn_constructor_kwargs=None,
+            min_rows_per_block=None,
+            compute=compute,
+            ray_remote_args=ray_remote_args,
+        )
+        self._keys = keys
+        self._batch_size = None
+        self._batch_format = "pyarrow"
+        self._zero_copy_batch = False
+
+    @property
+    def can_modify_num_rows(self) -> bool:
+        return False

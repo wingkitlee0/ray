@@ -1,6 +1,6 @@
 import collections
 from types import GeneratorType
-from typing import Any, Callable, Iterable, Iterator, Optional
+from typing import Any, Callable, Iterable, Iterator, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -16,6 +16,7 @@ from ray.data._internal.execution.operators.map_transformer import (
     BlocksToBatchesMapTransformFn,
     BlocksToRowsMapTransformFn,
     BuildOutputBlocksMapTransformFn,
+    BuildOutputBlocksMapTransformFn2,
     MapTransformCallable,
     MapTransformer,
     Row,
@@ -28,6 +29,7 @@ from ray.data._internal.logical.operators.map_operator import (
     FlatMap,
     MapBatches,
     MapRows,
+    RepartitionByColumn,
 )
 from ray.data._internal.numpy_support import is_valid_udf_return
 from ray.data._internal.util import _truncated_repr
@@ -56,6 +58,16 @@ def plan_udf_map_op(
     if isinstance(op, MapBatches):
         transform_fn = _generate_transform_fn_for_map_batches(fn)
         map_transformer = _create_map_transformer_for_map_batches_op(
+            transform_fn,
+            op._batch_size,
+            op._batch_format,
+            op._zero_copy_batch,
+            init_fn,
+        )
+    elif isinstance(op, RepartitionByColumn):
+        transform_fn = _generate_transform_fn_for_repartition(keys=op._keys)
+
+        map_transformer = _create_map_transformer_for_repartition_op(
             transform_fn,
             op._batch_size,
             op._batch_format,
@@ -214,6 +226,73 @@ def _generate_transform_fn_for_map_batches(
     return transform_fn
 
 
+def get_repartition_fn():
+    def repartition_fn(batch, keys):
+        if isinstance(keys, str):
+            keys = [keys]
+
+        accessor = BlockAccessor.for_block(batch)
+
+        # TODO: fix keys
+        arr = accessor.to_numpy(columns=keys)[keys[0]]
+        indices = np.hstack([[0], np.where(np.diff(arr) != 0)[0] + 1, [len(arr)]])
+
+        for start, end in zip(indices[:-1], indices[1:]):
+            print(end - start)
+            yield accessor.slice(start, end)
+
+    return repartition_fn
+
+
+# TODO: everything..
+def _generate_transform_fn_for_repartition(
+    keys: Union[str, List[str]],
+) -> MapTransformCallable[DataBatch, DataBatch]:
+    fn = get_repartition_fn()
+
+    def transform_fn(
+        batches: Iterable[DataBatch], _: TaskContext
+    ) -> Iterable[DataBatch]:
+        for batch in batches:
+            try:
+                if (
+                    not isinstance(batch, collections.abc.Mapping)
+                    and BlockAccessor.for_block(batch).num_rows() == 0
+                ):
+                    # For empty input blocks, we directly ouptut them without
+                    # calling the UDF.
+                    # TODO(hchen): This workaround is because some all-to-all
+                    # operators output empty blocks with no schema.
+                    res = [batch]
+                else:
+                    res = fn(batch, keys)
+                    if not isinstance(res, GeneratorType):
+                        res = [res]
+            except ValueError as e:
+                read_only_msgs = [
+                    "assignment destination is read-only",
+                    "buffer source array is read-only",
+                ]
+                err_msg = str(e)
+                if any(msg in err_msg for msg in read_only_msgs):
+                    raise ValueError(
+                        f"Batch mapper function {fn.__name__} tried to mutate a "
+                        "zero-copy read-only batch. To be able to mutate the "
+                        "batch, pass zero_copy_batch=False to map_batches(); "
+                        "this will create a writable copy of the batch before "
+                        "giving it to fn. To elide this copy, modify your mapper "
+                        "function so it doesn't try to mutate its input."
+                    ) from e
+                else:
+                    raise e from None
+            else:
+                for out_batch in res:
+                    _validate_batch_output(out_batch)
+                    yield out_batch
+
+    return transform_fn
+
+
 def _validate_row_output(item):
     if not isinstance(item, collections.abc.Mapping):
         raise ValueError(
@@ -303,12 +382,35 @@ def _create_map_transformer_for_row_based_map_op(
     return MapTransformer(transform_fns, init_fn=init_fn)
 
 
+def _create_map_transformer_for_repartition_op(
+    batch_fn: MapTransformCallable[DataBatch, DataBatch],
+    batch_size: Optional[int] = None,
+    batch_format: str = "default",
+    zero_copy_batch: bool = False,
+    init_fn: Optional[Callable[[], None]] = None,
+) -> MapTransformer:
+    """Create a MapTransformer for a map_batches operator."""
+    transform_fns = [
+        # Convert input blocks to batches.
+        BlocksToBatchesMapTransformFn(
+            batch_size=batch_size,
+            batch_format=batch_format,
+            zero_copy_batch=zero_copy_batch,
+        ),
+        # Apply the UDF.
+        BatchMapTransformFn(batch_fn),
+        # Convert output batches to blocks.
+        BuildOutputBlocksMapTransformFn2.for_batches(),  # ignore target_max_block_size
+    ]
+    return MapTransformer(transform_fns, init_fn)
+
+
 # Following are util functions for the legacy code path.
 
 
 def generate_map_rows_fn(
     target_max_block_size: int,
-) -> (Callable[[Iterator[Block], TaskContext, UserDefinedFunction], Iterator[Block]]):
+) -> Callable[[Iterator[Block], TaskContext, UserDefinedFunction], Iterator[Block]]:
     """Generate function to apply the UDF to each record of blocks."""
     context = DataContext.get_current()
 
@@ -328,7 +430,7 @@ def generate_map_rows_fn(
 
 def generate_flat_map_fn(
     target_max_block_size: int,
-) -> (Callable[[Iterator[Block], TaskContext, UserDefinedFunction], Iterator[Block]]):
+) -> Callable[[Iterator[Block], TaskContext, UserDefinedFunction], Iterator[Block]]:
     """Generate function to apply the UDF to each record of blocks,
     and then flatten results.
     """
@@ -351,7 +453,7 @@ def generate_flat_map_fn(
 
 def generate_filter_fn(
     target_max_block_size: int,
-) -> (Callable[[Iterator[Block], TaskContext, UserDefinedFunction], Iterator[Block]]):
+) -> Callable[[Iterator[Block], TaskContext, UserDefinedFunction], Iterator[Block]]:
     """Generate function to apply the UDF to each record of blocks,
     and filter out records that do not satisfy the given predicate.
     """

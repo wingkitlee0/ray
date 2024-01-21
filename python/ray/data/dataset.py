@@ -50,6 +50,7 @@ from ray.data._internal.logical.operators.map_operator import (
     FlatMap,
     MapBatches,
     MapRows,
+    RepartitionByColumn,
 )
 from ray.data._internal.logical.operators.n_ary_operator import (
     Union as UnionLogicalOperator,
@@ -663,6 +664,32 @@ class Dataset:
                 fn_kwargs=fn_kwargs,
                 fn_constructor_args=fn_constructor_args,
                 fn_constructor_kwargs=fn_constructor_kwargs,
+                compute=compute,
+                ray_remote_args=ray_remote_args,
+            )
+            logical_plan = LogicalPlan(map_batches_op)
+
+        return Dataset(plan, logical_plan)
+
+    def repartition_by_column(
+        self,
+        keys: Union[str, List[str]],
+        *,
+        concurrency: Optional[Union[int, Tuple[int, int]]] = None,
+        **ray_remote_args,
+    ) -> "Dataset":
+        """Repartition the dataset by the given column(s)."""
+        compute = get_compute_strategy(
+            fn=lambda: None,  # dummy
+            concurrency=concurrency,
+        )
+
+        plan = self._plan.copy()
+        logical_plan = self._logical_plan
+        if logical_plan is not None:
+            map_batches_op = RepartitionByColumn(
+                logical_plan.dag,
+                keys=keys,
                 compute=compute,
                 ray_remote_args=ray_remote_args,
             )
