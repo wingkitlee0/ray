@@ -1678,14 +1678,13 @@ class Dataset:
         plan = self._plan.copy()
 
         logical_plan = self._logical_plan
-        if logical_plan is not None:
-            op = RepartitionByColumn(
-                logical_plan.dag,
-                keys=keys,
-                concurrency=concurrency,
-                ray_remote_args=ray_remote_args,
-            )
-            logical_plan = LogicalPlan(op)
+        op = RepartitionByColumn(
+            logical_plan.dag,
+            keys=keys,
+            concurrency=concurrency,
+            ray_remote_args=ray_remote_args,
+        )
+        logical_plan = LogicalPlan(op)
         return Dataset(plan, logical_plan)
 
     @ConsumptionAPI
