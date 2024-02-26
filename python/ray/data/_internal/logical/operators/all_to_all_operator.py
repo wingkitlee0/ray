@@ -6,8 +6,7 @@ from ray.data._internal.planner.exchange.repartition_task_spec import (
     RepartitionByColumnTaskSpec,
 )
 from ray.data._internal.planner.exchange.shuffle_task_spec import ShuffleTaskSpec
-from ray.data._internal.planner.exchange.sort_task_spec import SortTaskSpec
-from ray.data._internal.sort import SortKey
+from ray.data._internal.planner.exchange.sort_task_spec import SortKey, SortTaskSpec
 from ray.data.aggregate import AggregateFn
 
 
