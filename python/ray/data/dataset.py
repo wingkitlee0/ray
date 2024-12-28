@@ -2273,7 +2273,7 @@ class Dataset:
             If the dataset is empty, all values are null. If ``ignore_nulls`` is
             ``False`` and any value is null, then the output is ``None``.
         """
-        ret = self._aggregate_on(Sum, on, ignore_nulls)
+        ret = self._aggregate_on(Sum, on, ignore_nulls=ignore_nulls)
         return self._aggregate_result(ret)
 
     @AllToAllAPI
@@ -2317,7 +2317,7 @@ class Dataset:
             If the dataset is empty, all values are null. If ``ignore_nulls`` is
             ``False`` and any value is null, then the output is ``None``.
         """
-        ret = self._aggregate_on(Min, on, ignore_nulls)
+        ret = self._aggregate_on(Min, on, ignore_nulls=ignore_nulls)
         return self._aggregate_result(ret)
 
     @AllToAllAPI
@@ -2361,7 +2361,7 @@ class Dataset:
             If the dataset is empty, all values are null. If ``ignore_nulls`` is
             ``False`` and any value is null, then the output is ``None``.
         """
-        ret = self._aggregate_on(Max, on, ignore_nulls)
+        ret = self._aggregate_on(Max, on, ignore_nulls=ignore_nulls)
         return self._aggregate_result(ret)
 
     @AllToAllAPI
@@ -2405,7 +2405,7 @@ class Dataset:
             If the dataset is empty, all values are null. If ``ignore_nulls`` is
             ``False`` and any value is null, then the output is ``None``.
         """
-        ret = self._aggregate_on(Mean, on, ignore_nulls)
+        ret = self._aggregate_on(Mean, on, ignore_nulls=ignore_nulls)
         return self._aggregate_result(ret)
 
     @AllToAllAPI
@@ -2463,7 +2463,7 @@ class Dataset:
             If the dataset is empty, all values are null. If ``ignore_nulls`` is
             ``False`` and any value is null, then the output is ``None``.
         """  # noqa: E501
-        ret = self._aggregate_on(Std, on, ignore_nulls, ddof=ddof)
+        ret = self._aggregate_on(Std, on, ignore_nulls=ignore_nulls, ddof=ddof)
         return self._aggregate_result(ret)
 
     @AllToAllAPI
@@ -5252,7 +5252,6 @@ class Dataset:
         self,
         agg_cls: type,
         on: Optional[Union[str, List[str]]],
-        ignore_nulls: bool,
         *args,
         skip_cols: Optional[List[str]] = None,
         **kwargs,
@@ -5271,7 +5270,7 @@ class Dataset:
 
         if not isinstance(on, list):
             on = [on]
-        return [agg_cls(on_, *args, ignore_nulls=ignore_nulls, **kwargs) for on_ in on]
+        return [agg_cls(on_, *args, **kwargs) for on_ in on]
 
     def _aggregate_result(self, result: Union[Tuple, Mapping]) -> U:
         if result is not None and len(result) == 1:
