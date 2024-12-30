@@ -10,6 +10,7 @@ import ray
 from ray.data._internal.delegating_block_builder import DelegatingBlockBuilder
 from ray.data.block import Block, BlockAccessor, BlockExecStats
 
+
 logger = logging.getLogger(__name__)
 
 KeyType = TypeVar("KeyType")
@@ -63,7 +64,7 @@ def split_single_block(
         yield key, accessor.slice(start, end, copy=True)
 
 
-def merge_tables(keys_and_blocks: List[Tuple]):
+def merge_tables(keys_and_blocks: Deque[Tuple[KeyType, Block]]):
     """Merge pyarrow tables
 
     Neighboring tables with the same group key are concatenated. Similar to
@@ -193,8 +194,6 @@ class Actor:
             await self.merge_right_blocks()
 
         self.output_queue.put_nowait("done")
-        # tend = time.perf_counter()
-        # logger.info(f"{self.name}-merge-blocks: time = {(tend-tstart):0.3f}s")
 
     async def send_to_left(self):
         """Send the left item to the left actor."""
@@ -227,12 +226,13 @@ class Actor:
         while True:
             item = await self.output_queue.get()
             if item == "done":
-                print(f"{len(all_blocks)=}")
-                return *all_blocks, all_metadata, all_keys
+                break
             block, meta, key = item
             all_blocks.append(block)
             all_metadata.append(meta)
             all_keys.append(key)
+
+        return *all_blocks, all_metadata, all_keys
 
     def get_num_output_blocks(self):
         return self._num_output_blocks
@@ -244,13 +244,17 @@ class Actor:
         return self._split_num_rows
 
 
-def retreive_results(actors):
-    """Retreive the results from the actors.
+def retreive_results(actors: List[Actor]):
+    """Retreive the results from a chain of actors.
 
-    Since we do not know the number of blocks in advance, we need
-    to call `get_num_output_blocks` to get the number of blocks.
-    The rest of the function is simply rearranging the output
-    without materializing the object references.
+    Args:
+        actors: a list of actors that are chained together.
+
+    Note:
+        Since we do not know the number of blocks in advance, we need
+        to call `get_num_output_blocks` to get the number of blocks.
+        The rest of the function is simply rearranging the output
+        without materializing the object references.
     """
     num_ouput_blocks = ray.get(
         [actor.get_num_output_blocks.remote() for actor in actors]
@@ -263,32 +267,37 @@ def retreive_results(actors):
 
     output_blocks, output_metadata, output_keys = [], [], []
     for refs_per_actor in refs:
-        output_keys.append(refs_per_actor.pop())
-        output_metadata.append(refs_per_actor.pop())
-        output_blocks.extend(refs_per_actor)
+        *block, metadata, keys = refs_per_actor
+        output_keys.append(keys)
+        output_metadata.append(metadata)
+        output_blocks.extend(block)
 
-    # yield each blocks
-    yield from output_blocks
+    yield len(output_blocks)
     # yield 2*K lists of metadata and keys
     yield from output_metadata
     yield from output_keys
 
+    yield from output_blocks
+
+
+
+
 
 def repartition_runner(
-    ref_id,
-    blocks,
-    map_args,
+    ref_id: int,
+    blocks: List[Block],
+    keys: Union[str, List[str]],
+    num_actors: int,
 ) -> Iterator[ray.ObjectRef]:
     """
     Yields:
+        num_blocks, metadata, keys, *blocks
+
         Assuming K actors, this function first yields each block's object reference
         individually. Then it yields K refs from each actor for the metadata, i.e.,
         K lists of metadata. Finally, it yields K refs from each actor for the keys,
         i.e., K lists of keys.
     """
-
-    # TODO: currently, 'concurrency' only means number of actors.
-    keys, num_actors = map_args
 
     if len(blocks) <= num_actors:
         num_actors = 1

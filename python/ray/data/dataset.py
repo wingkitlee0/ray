@@ -2026,7 +2026,7 @@ class Dataset:
             concurrency=concurrency,
             ray_remote_args=ray_remote_args,
         )
-        logical_plan = LogicalPlan(op)
+        logical_plan = LogicalPlan(op, self.context)
         return Dataset(plan, logical_plan)
 
     @ConsumptionAPI

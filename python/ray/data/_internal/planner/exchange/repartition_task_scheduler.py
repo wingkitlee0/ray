@@ -47,9 +47,6 @@ class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
             reduce_ray_remote_args = reduce_ray_remote_args.copy()
             reduce_ray_remote_args["scheduling_strategy"] = "SPREAD"
 
-        # TODO: currently, 'concurrency' only means number of actors.
-        num_actors = self._exchange_spec._map_args[1]
-
         ref_id = 0
         # drop the metadata
         all_blocks = [b for ref_bundle in refs for b, _ in ref_bundle.blocks]
@@ -64,7 +61,9 @@ class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
             repartition_runner(
                 ref_id,
                 all_blocks,
-                self._exchange_spec._map_args,
+                keys=self._exchange_spec._map_args[0],
+                # TODO: currently, 'concurrency' only means number of actors.
+                num_actors=self._exchange_spec._map_args[1],
             )
         )
         tend = time.perf_counter()
@@ -72,14 +71,14 @@ class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
             f"Finished repartitioning {len(result_refs)=}, ({(tend-tstart):.2f}s)"
         )
 
-        # all_keys = []
-        # for _ in range(num_actors):
-        #     all_keys.append(result_refs.pop())
-        all_keys, result_refs = result_refs[-num_actors:], result_refs[:-num_actors]
-        all_metadata, result_refs = result_refs[-num_actors:], result_refs[:-num_actors]
-        # all_metadata = []
-        # for _ in range(num_actors):
-        #     all_metadata.append(result_refs.pop())
+        num_blocks = result_refs[0]
+        print(f"{num_blocks=}")
+        result_refs = result_refs[1:]
+        num_metadata = (len(result_refs) - num_blocks) // 2
+
+        all_metadata = result_refs[:num_metadata]
+        all_keys = result_refs[num_metadata:2*num_metadata]
+        result_refs = result_refs[-num_blocks:]
 
         sub_progress_bar_dict = ctx.sub_progress_bar_dict
         bar_name = RepartitionByColumnTaskSpec.SPLIT_SUB_PROGRESS_BAR_NAME
@@ -93,11 +92,8 @@ class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
         ]
         time_mid = time.perf_counter()
         logger.info(
-            f"repartition time (up to all_metadata)= {(time_mid - time_start):.4}s"
+            f"repartition time (up to all_metadata)= {(time_mid - time_start):.4f}s"
         )
-
-        # all_keys = ray.get(all_keys)
-        # all_keys = [m for keys in all_keys for m in keys]
 
         all_blocks = [
             RefBundle([(block, meta)], input_owned_by_consumer)
@@ -124,6 +120,6 @@ class RepartitionByColumnTaskScheduler(ExchangeTaskScheduler):
         stats = {"repartition": all_metadata}
 
         time_end = time.perf_counter()
-        logger.info(f"repartition time = {(time_end - time_start):.4}s")
+        logger.info(f"repartition time = {(time_end - time_start):.4f}s")
 
         return (all_blocks, stats)
