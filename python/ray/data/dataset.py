@@ -556,6 +556,9 @@ class Dataset:
                 If ``fn`` mutates its input, this needs to be ``False`` in order to
                 avoid "assignment destination is read-only" or "buffer source array is
                 read-only" errors. Default is ``False``.
+            include_task_idx: Whether to include the task index in the input argument
+                to `fn`. This means that the `fn` will get a tuple of
+                (task_idx, batch_idx, batch) instead of just the batch.
             fn_args: Positional arguments to pass to ``fn`` after the first argument.
                 These arguments are top-level arguments to the underlying Ray task.
             fn_kwargs: Keyword arguments to pass to ``fn``. These arguments are
@@ -626,6 +629,11 @@ class Dataset:
 
         if isinstance(batch_size, int) and batch_size < 1:
             raise ValueError("Batch size can't be negative or 0")
+
+        # TODO: `include_task_idx` is piggy-backed to support
+        # reproducibility in random_sample(). It passes a tuple of
+        # (task_idx, batch_id, batch) to the UDF instead of just the batch.
+        # It's unclear if this should be part of the public API.
 
         return self._map_batches_without_batch_size_validation(
             fn,
@@ -1591,15 +1599,19 @@ class Dataset:
 
             if isinstance(batch, pa.Table):
                 # Lets the item pass if weight generated for that item <= fraction
-                return batch.filter(
-                    pa.array(rng.random(len(batch)) <= fraction)
-                )
+                return batch.filter(pa.array(rng.random(len(batch)) <= fraction))
             if isinstance(batch, pd.DataFrame):
                 return batch.sample(frac=fraction, random_state=rng)
 
             raise ValueError(f"Unsupported batch type: {type(batch)}")
 
-        return self.map_batches(random_sample, fn_args=[seed], batch_format=None, include_task_idx=True)
+        return self.map_batches(
+            random_sample,
+            batch_format=None,
+            fn_args=[seed],
+            include_task_idx=True,
+            zero_copy_batch=True,
+        )
 
     @ConsumptionAPI
     @PublicAPI(api_group=SMD_API_GROUP)
