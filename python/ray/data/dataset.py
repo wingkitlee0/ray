@@ -413,6 +413,7 @@ class Dataset:
         compute: Optional[ComputeStrategy] = None,
         batch_format: Optional[str] = "default",
         zero_copy_batch: bool = False,
+        include_task_idx: bool = False,
         fn_args: Optional[Iterable[Any]] = None,
         fn_kwargs: Optional[Dict[str, Any]] = None,
         fn_constructor_args: Optional[Iterable[Any]] = None,
@@ -632,6 +633,7 @@ class Dataset:
             compute=compute,
             batch_format=batch_format,
             zero_copy_batch=zero_copy_batch,
+            include_task_idx=include_task_idx,
             fn_args=fn_args,
             fn_kwargs=fn_kwargs,
             fn_constructor_args=fn_constructor_args,
@@ -652,6 +654,7 @@ class Dataset:
         compute: Optional[ComputeStrategy],
         batch_format: Optional[str],
         zero_copy_batch: bool,
+        include_task_idx: bool,
         fn_args: Optional[Iterable[Any]],
         fn_kwargs: Optional[Dict[str, Any]],
         fn_constructor_args: Optional[Iterable[Any]],
@@ -708,6 +711,7 @@ class Dataset:
             batch_format=batch_format,
             zero_copy_batch=zero_copy_batch,
             min_rows_per_bundled_input=batch_size,
+            include_task_idx=include_task_idx,
             fn_args=fn_args,
             fn_kwargs=fn_kwargs,
             fn_constructor_args=fn_constructor_args,
@@ -1569,8 +1573,6 @@ class Dataset:
         Returns:
             Returns a :class:`Dataset` containing the sampled rows.
         """
-        import random
-
         import pandas as pd
         import pyarrow as pa
 
@@ -1580,26 +1582,24 @@ class Dataset:
         if fraction < 0 or fraction > 1:
             raise ValueError("Fraction must be between 0 and 1.")
 
-        if seed is not None:
-            random.seed(seed)
+        def random_sample(batch: DataBatch, seed: Optional[int]):
+            task_id, batch_id, batch = batch
+            if seed is None:
+                rng = np.random.default_rng()
+            else:
+                rng = np.random.default_rng([batch_id, task_id, seed])
 
-        def random_sample(batch):
-            if isinstance(batch, list):
-                return [row for row in batch if random.random() <= fraction]
             if isinstance(batch, pa.Table):
                 # Lets the item pass if weight generated for that item <= fraction
                 return batch.filter(
-                    pa.array(random.random() <= fraction for _ in range(len(batch)))
+                    pa.array(rng.random(len(batch)) <= fraction)
                 )
             if isinstance(batch, pd.DataFrame):
-                return batch.sample(frac=fraction)
-            if isinstance(batch, np.ndarray):
-                return _create_possibly_ragged_ndarray(
-                    [row for row in batch if random.random() <= fraction]
-                )
+                return batch.sample(frac=fraction, random_state=rng)
+
             raise ValueError(f"Unsupported batch type: {type(batch)}")
 
-        return self.map_batches(random_sample, batch_format=None)
+        return self.map_batches(random_sample, fn_args=[seed], batch_format=None, include_task_idx=True)
 
     @ConsumptionAPI
     @PublicAPI(api_group=SMD_API_GROUP)
