@@ -209,7 +209,7 @@ def plan_udf_map_op(
     fn, init_fn = _parse_op_fn(op)
 
     if isinstance(op, MapBatches):
-        transform_fn = _generate_transform_fn_for_map_batches(fn, op._include_task_ctx)
+        transform_fn = _generate_transform_fn_for_map_batches(fn)
         map_transformer = _create_map_transformer_for_map_batches_op(
             transform_fn,
             op._batch_size,
@@ -303,21 +303,11 @@ def _parse_op_fn(op: AbstractUDFMap):
 
     else:
 
-        if op._include_task_ctx:
-
-            def fn(item: Any, ctx: TaskContext) -> Any:
-                try:
-                    return op_fn(item, ctx, *fn_args, **fn_kwargs)
-                except Exception as e:
-                    _handle_debugger_exception(e)
-
-        else:
-
-            def fn(item: Any) -> Any:
-                try:
-                    return op_fn(item, *fn_args, **fn_kwargs)
-                except Exception as e:
-                    _handle_debugger_exception(e)
+        def fn(item: Any) -> Any:
+            try:
+                return op_fn(item, *fn_args, **fn_kwargs)
+            except Exception as e:
+                _handle_debugger_exception(e)
 
         def init_fn():
             pass
@@ -383,7 +373,6 @@ def _validate_batch_output(batch: Block) -> None:
 
 def _generate_transform_fn_for_map_batches(
     fn: UserDefinedFunction,
-    include_task_ctx: bool = False,
 ) -> MapTransformCallable[DataBatch, DataBatch]:
     if inspect.iscoroutinefunction(fn):
         # UDF is a callable class with async generator `__call__` method.
@@ -392,9 +381,9 @@ def _generate_transform_fn_for_map_batches(
     else:
 
         def transform_fn(
-            batches: Iterable[DataBatch], ctx: TaskContext
+            batches: Iterable[DataBatch], _: TaskContext
         ) -> Iterable[DataBatch]:
-            for batch_id, batch in enumerate(batches):
+            for batch in batches:
                 try:
                     if (
                         not isinstance(batch, collections.abc.Mapping)
@@ -406,11 +395,7 @@ def _generate_transform_fn_for_map_batches(
                         # operators output empty blocks with no schema.
                         res = [batch]
                     else:
-                        if include_task_ctx:
-                            ctx.kwargs["batch_idx"] = batch_id
-                            res = fn(batch, ctx)
-                        else:
-                            res = fn(batch)
+                        res = fn(batch)
 
                         if not isinstance(res, GeneratorType):
                             res = [res]

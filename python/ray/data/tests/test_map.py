@@ -1569,7 +1569,7 @@ def test_random_sample_fixed_seed_0001(ray_start_regular_shared):
     result = ds.to_pandas()["id"].to_numpy()
 
     # Expected:
-    expected = np.array([26, 44, 53, 61, 62, 85, 96])
+    expected = np.array([8, 49, 71, 78, 81, 85])
 
     np.testing.assert_array_equal(result, expected)
 

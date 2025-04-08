@@ -372,7 +372,6 @@ class OperatorFusionRule(Rule):
                 fn_constructor_kwargs=down_logical_op._fn_constructor_kwargs,
                 min_rows_per_bundled_input=min_rows_per_bundled_input,
                 compute=compute,
-                include_task_ctx=down_logical_op._include_task_ctx,
                 ray_remote_args_fn=ray_remote_args_fn,
                 ray_remote_args=ray_remote_args,
             )

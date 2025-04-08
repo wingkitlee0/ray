@@ -632,7 +632,6 @@ class Dataset:
             compute=compute,
             batch_format=batch_format,
             zero_copy_batch=zero_copy_batch,
-            include_task_ctx=False,
             fn_args=fn_args,
             fn_kwargs=fn_kwargs,
             fn_constructor_args=fn_constructor_args,
@@ -653,7 +652,6 @@ class Dataset:
         compute: Optional[ComputeStrategy],
         batch_format: Optional[str],
         zero_copy_batch: bool,
-        include_task_ctx: bool,
         fn_args: Optional[Iterable[Any]],
         fn_kwargs: Optional[Dict[str, Any]],
         fn_constructor_args: Optional[Iterable[Any]],
@@ -710,7 +708,6 @@ class Dataset:
             batch_format=batch_format,
             zero_copy_batch=zero_copy_batch,
             min_rows_per_bundled_input=batch_size,
-            include_task_ctx=include_task_ctx,
             fn_args=fn_args,
             fn_kwargs=fn_kwargs,
             fn_constructor_args=fn_constructor_args,
@@ -1587,13 +1584,20 @@ class Dataset:
         if fraction < 0 or fraction > 1:
             raise ValueError("Fraction must be between 0 and 1.")
 
-        def random_sample(batch: DataBatch, ctx, seed: Optional[int]):
-            if seed is None:
+        from ray.data._internal.execution.interfaces.task_context import TaskContext
+
+        def random_sample(batch: DataBatch, seed: Optional[int]):
+
+            ctx = TaskContext.get_current()
+
+            if "rng" in ctx.kwargs:
+                rng = ctx.kwargs["rng"]
+            elif seed is None:
                 rng = np.random.default_rng()
+                ctx.kwargs["rng"] = rng
             else:
-                rng = np.random.default_rng(
-                    [ctx.kwargs.get("batch_idx", 0), ctx.task_idx, seed]
-                )
+                rng = np.random.default_rng([ctx.task_idx, seed])
+                ctx.kwargs["rng"] = rng
 
             mask_idx = np.where(rng.random(len(batch)) < fraction)[0]
             if isinstance(batch, pa.Table):
@@ -1603,22 +1607,10 @@ class Dataset:
 
             raise ValueError(f"Unsupported batch type: {type(batch)}")
 
-        return self._map_batches_without_batch_size_validation(
+        return self.map_batches(
             random_sample,
-            batch_size=None,
-            compute=None,
-            batch_format=None,
-            zero_copy_batch=True,
-            include_task_ctx=True,
             fn_args=[seed],
-            fn_kwargs=None,
-            fn_constructor_args=None,
-            fn_constructor_kwargs=None,
-            num_cpus=None,
-            num_gpus=None,
-            memory=None,
-            concurrency=None,
-            ray_remote_args_fn=None,
+            batch_format=None,
         )
 
     @ConsumptionAPI
