@@ -2017,7 +2017,8 @@ def test_map_with_max_calls():
 
     # Not OK to set 'max_calls' as dynamic option
     with pytest.raises(ValueError):
-        ds = ds.map(lambda x: x,
+        ds = ds.map(
+            lambda x: x,
             ray_remote_args_fn=lambda: {"max_calls": 1},
         )
         ds.take_all()
