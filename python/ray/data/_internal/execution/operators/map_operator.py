@@ -317,7 +317,7 @@ class MapOperator(OneToOneOperator, InternalQueueOperatorMixin, ABC):
             # queue
             self._add_bundled_input(bundled_input)
 
-    def _get_runtime_ray_remote_args(
+    def _get_dynamic_ray_remote_args(
         self, input_bundle: Optional[RefBundle] = None
     ) -> Dict[str, Any]:
         ray_remote_args = copy.deepcopy(self._ray_remote_args)
@@ -330,6 +330,22 @@ class MapOperator(OneToOneOperator, InternalQueueOperatorMixin, ABC):
             new_remote_args = self._ray_remote_args_fn()
             for k, v in new_remote_args.items():
                 ray_remote_args[k] = v
+
+        ray_remote_args = self._apply_scheduling_strategy_overrides(
+            ray_remote_args,
+            input_bundle=input_bundle,
+        )
+
+        return ray_remote_args
+
+    def _apply_scheduling_strategy_overrides(
+        self,
+        ray_remote_args: Dict[str, Any],
+        *,
+        input_bundle: Optional[RefBundle] = None,
+    ) -> Dict[str, Any]:
+        """Override scheduling strategy based on the current data context."""
+
         # For tasks with small args, we will use SPREAD by default to optimize for
         # compute load-balancing. For tasks with large args, we will use DEFAULT to
         # allow the Ray locality scheduler a chance to optimize task placement.
@@ -353,8 +369,9 @@ class MapOperator(OneToOneOperator, InternalQueueOperatorMixin, ABC):
             return self._ray_remote_args_factory_actor_locality(ray_remote_args)
         return ray_remote_args
 
+
     @abstractmethod
-    def _add_bundled_input(self, refs: RefBundle):
+    def _add_bundled_input(self, bundle: RefBundle):
         """Add a pre-bundled upstream output to this operator.
 
         Unlike the add_input() arg, this RefBundle has already been further bundled by

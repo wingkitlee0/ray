@@ -481,7 +481,7 @@ class _MapWorker:
         ctx: TaskContext,
         *blocks: Block,
         **kwargs: Dict[str, Any],
-    ) -> Iterator[Union[Block, List[BlockMetadata]]]:
+    ) -> Iterator[Union[Block, BlockMetadata]]:
         yield from _map_task(
             self._map_transformer,
             data_context,
