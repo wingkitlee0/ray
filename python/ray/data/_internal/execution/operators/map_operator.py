@@ -322,14 +322,11 @@ class MapOperator(OneToOneOperator, InternalQueueOperatorMixin, ABC):
     ) -> Dict[str, Any]:
         ray_remote_args = copy.deepcopy(self._ray_remote_args)
 
-        # Remove max_calls from the dynamic options.
-        ray_remote_args.pop("max_calls", None)
-
         # Override parameters from user provided remote args function.
-        if self._ray_remote_args_fn:
-            new_remote_args = self._ray_remote_args_fn()
-            for k, v in new_remote_args.items():
-                ray_remote_args[k] = v
+        ray_remote_args = _override_ray_remote_args_by_remote_args_fn(
+            ray_remote_args,
+            self._ray_remote_args_fn,
+        )
 
         ray_remote_args = self._apply_scheduling_strategy_overrides(
             ray_remote_args,
@@ -792,5 +789,32 @@ def _canonicalize_ray_remote_args(ray_remote_args: Dict[str, Any]) -> Dict[str, 
 
     if "num_cpus" not in ray_remote_args and "num_gpus" not in ray_remote_args:
         ray_remote_args["num_cpus"] = 1
+
+    return ray_remote_args
+
+def _override_ray_remote_args_by_remote_args_fn(
+    ray_remote_args: Dict[str, Any],
+    remote_args_fn: Optional[Callable[[], Dict[str, Any]]],
+) -> Dict[str, Any]:
+    """Override ray remote args with user-provided overrides
+
+    Args:
+        ray_remote_args: A copy of the ray remote args.
+        remote_args_fn: A callable that returns a dictionary of overrides.
+
+    Returns:
+        The updated ray remote args.
+    """
+
+    if remote_args_fn is None:
+        return ray_remote_args
+
+    assert callable(remote_args_fn), "remote_args_fn must be callable"
+
+    ray_remote_args = copy.deepcopy(ray_remote_args)
+    new_remote_args = remote_args_fn()
+
+    for k, v in new_remote_args.items():
+        ray_remote_args[k] = v
 
     return ray_remote_args

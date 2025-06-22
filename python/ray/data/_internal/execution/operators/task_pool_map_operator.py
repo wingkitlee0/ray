@@ -76,15 +76,16 @@ class TaskPoolMapOperator(MapOperator):
 
         self._map_task = cached_remote_fn(_map_task, **ray_remote_static_args)
 
-    def _add_bundled_input(self, bundle: RefBundle):
-        # Submit the task as a normal Ray task.
-        ctx = TaskContext(
-            task_idx=self._next_data_task_idx,
-            op_name=self.name,
-            target_max_block_size=self.actual_target_max_block_size,
+    def _get_dynamic_ray_remote_args(
+        self, input_bundle: Optional[RefBundle] = None
+    ) -> Dict[str, Any]:
+        dynamic_ray_remote_args = super()._get_dynamic_ray_remote_args(
+            input_bundle=input_bundle
         )
 
-        dynamic_ray_remote_args = self._get_dynamic_ray_remote_args(input_bundle=bundle)
+        # Remove max_calls from the dynamic options.
+        dynamic_ray_remote_args.pop("max_calls", None)
+
         dynamic_ray_remote_args["name"] = self.name
 
         if (
@@ -97,6 +98,17 @@ class TaskPoolMapOperator(MapOperator):
             dynamic_ray_remote_args["_generator_backpressure_num_objects"] = (
                 2 * self.data_context._max_num_blocks_in_streaming_gen_buffer
             )
+        return dynamic_ray_remote_args
+
+    def _add_bundled_input(self, bundle: RefBundle):
+        # Submit the task as a normal Ray task.
+        ctx = TaskContext(
+            task_idx=self._next_data_task_idx,
+            op_name=self.name,
+            target_max_block_size=self.actual_target_max_block_size,
+        )
+
+        dynamic_ray_remote_args = self._get_dynamic_ray_remote_args(input_bundle=bundle)
 
         data_context = self.data_context
 

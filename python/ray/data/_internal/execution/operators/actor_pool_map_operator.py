@@ -23,7 +23,11 @@ from ray.data._internal.execution.interfaces import (
     TaskContext,
 )
 from ray.data._internal.execution.interfaces.physical_operator import _ActorPoolInfo
-from ray.data._internal.execution.operators.map_operator import MapOperator, _map_task
+from ray.data._internal.execution.operators.map_operator import (
+    MapOperator,
+    _map_task,
+    _override_ray_remote_args_by_remote_args_fn,
+)
 from ray.data._internal.execution.operators.map_transformer import MapTransformer
 from ray.data._internal.execution.util import locality_string
 from ray.data._internal.remote_fn import _add_system_error_to_retry_exceptions
@@ -214,6 +218,8 @@ class ActorPoolMapOperator(MapOperator):
         assert self._cls is not None
         ctx = self.data_context
         if self._ray_remote_args_fn:
+            # NOTE: Interestingly, instead of using it in options(), the
+            # `ray_remote_args_fn` is used for .remote() call.
             self._refresh_actor_cls()
         actor = self._cls.options(
             _labels={self._OPERATOR_ID_LABEL_KEY: self.id, **labels}
@@ -299,7 +305,7 @@ class ActorPoolMapOperator(MapOperator):
             else:
                 self._locality_misses += 1
 
-    def _refresh_actor_cls(self):
+    def _refresh_actor_cls(self) -> None:
         """When `self._ray_remote_args_fn` is specified, this method should
         be called prior to initializing the new worker in order to get new
         remote args passed to the worker. It updates `self.cls` with the same
@@ -307,15 +313,12 @@ class ActorPoolMapOperator(MapOperator):
         `self._ray_remote_args_fn`."""
         assert self._ray_remote_args_fn, "_ray_remote_args_fn must be provided"
         remote_args = self._ray_remote_args.copy()
-        new_remote_args = self._ray_remote_args_fn()
 
-        # Override args from user-defined remote args function.
-        new_and_overriden_remote_args = {}
-        for k, v in new_remote_args.items():
-            remote_args[k] = v
-            new_and_overriden_remote_args[k] = v
+        remote_args = _override_ray_remote_args_by_remote_args_fn(
+            remote_args,
+            self._ray_remote_args_fn,
+        )
         self._cls = ray.remote(**remote_args)(_MapWorker)
-        return new_and_overriden_remote_args
 
     def all_inputs_done(self):
         # Call base implementation to handle any leftover bundles. This may or may not
