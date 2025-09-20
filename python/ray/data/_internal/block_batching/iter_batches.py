@@ -120,11 +120,11 @@ class BatchIterator:
         self._batch_size = batch_size
         self._batch_format = batch_format
         self._drop_last = drop_last
+        self._collate_fn = collate_fn
+        self._finalize_fn = finalize_fn
         self._shuffle_buffer_min_size = shuffle_buffer_min_size
         self._shuffle_seed = shuffle_seed
         self._ensure_copy = ensure_copy
-        self._collate_fn = collate_fn
-        self._finalize_fn = finalize_fn
         self._prefetch_batches = prefetch_batches
         self._eager_free = (
             clear_block_after_read and DataContext.get_current().eager_free
