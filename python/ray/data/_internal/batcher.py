@@ -31,7 +31,7 @@ class BatcherInterface(ABC):
         pass
 
     @abstractmethod
-    def done_adding(self) -> bool:
+    def done_adding(self) -> None:
         """Indicate to the batcher that no more blocks will be added to the buffer."""
         pass
 
@@ -92,7 +92,7 @@ class Batcher(BatcherInterface):
             self._buffer.append(block)
             self._buffer_size += BlockAccessor.for_block(block).num_rows()
 
-    def done_adding(self) -> bool:
+    def done_adding(self) -> None:
         """Indicate to the batcher that no more blocks will be added to the batcher."""
         self._done_adding = True
 
@@ -277,7 +277,7 @@ class ShufflingBatcher(BatcherInterface):
 
         return self._average_row_nbytes * self._min_rows_to_trigger_compaction
 
-    def done_adding(self) -> bool:
+    def done_adding(self) -> None:
         """Indicate to the batcher that no more blocks will be added to the batcher.
 
         No more blocks should be added to the batcher after calling this.
@@ -386,7 +386,25 @@ def create_batcher(
     batcher_fn: Optional[Callable[..., BatcherInterface]] = None,
     **kwargs,
 ) -> BatcherInterface:
-    """Create a batcher."""
+    """Create a batcher
+
+    Args:
+        batch_size: Record batch size.
+        shuffle_buffer_min_size: If non-None, the data will be randomly shuffled
+            using a local in-memory shuffle buffer, and this value will serve as the
+            minimum number of rows that must be in the local in-memory shuffle buffer in
+            order to yield a batch.
+        shuffle_seed: The seed to use for the local random shuffle.
+        ensure_copy: Whether batches are always copied from the underlying base
+            blocks (not zero-copy views).
+        batcher_fn: A function to create a batcher, which is a subclass of
+            `BatcherInterface`. If None, a default batcher will be created based on the
+            given parameters.
+        **kwargs: Additional arguments to pass to the batcher.
+
+    Returns:
+        A batcher, which is a subclass of `BatcherInterface`.
+    """
 
     # Custom batchers
     if batcher_fn is not None:

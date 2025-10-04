@@ -86,50 +86,77 @@ def blocks_to_batches(
 
     Args:
         block_iter: An iterator over blocks.
+        batcher: A batcher, which is a subclass of `BatcherInterface`.
         stats: Dataset stats object used to store block batching time.
-        batch_size: Record batch size, or None to let the system pick.
         drop_last: Whether to drop the last batch if it's incomplete.
-        shuffle_buffer_min_size: If non-None, the data will be randomly shuffled
-            using a local in-memory shuffle buffer, and this value will serve as the
-            minimum number of rows that must be in the local in-memory shuffle buffer in
-            order to yield a batch.
-        shuffle_seed: The seed to use for the local random shuffle.
-        ensure_copy: Whether batches are always copied from the underlying base
-            blocks (not zero-copy views).
 
     Returns:
         An iterator over blocks of the given size that are potentially shuffled.
     """
 
-    def get_iter_next_batch_s_timer():
-        return stats.iter_next_batch_s.timer() if stats else nullcontext()
+    yield from TimedIterator(
+        iterator=BlockToBatchIterator(block_iter, batcher, drop_last),
+        stats=stats,
+    )
 
-    global_counter = 0
 
-    for block in block_iter:
-        batcher.add(block)
-        while batcher.has_batch():
-            with get_iter_next_batch_s_timer():
-                batch = batcher.next_batch()
-            yield Batch(metadata=BatchMetadata(batch_idx=global_counter), data=batch)
-            global_counter += 1
+class TimedIterator:
+    """Decorator that adds timing to any iterator."""
 
-    # Signal to the batcher that there are no more blocks to add.
-    batcher.done_adding()
+    def __init__(self, iterator, stats: Optional[DatasetStats] = None):
+        self.iterator = iterator
+        self.stats = stats
 
-    # Get any leftover batches in ShufflingBatcher.
-    while batcher.has_batch():
-        with get_iter_next_batch_s_timer():
-            batch = batcher.next_batch()
-        yield Batch(metadata=BatchMetadata(batch_idx=global_counter), data=batch)
-        global_counter += 1
+    def __iter__(self):
+        def get_timer():
+            return self.stats.iter_next_batch_s.timer() if self.stats else nullcontext()
 
-    # Get any remaining data.
-    if not drop_last and batcher.has_any():
-        with get_iter_next_batch_s_timer():
-            batch = batcher.next_batch()
-        yield Batch(metadata=BatchMetadata(batch_idx=global_counter), data=batch)
-        global_counter += 1
+        for item in self.iterator:
+            with get_timer():
+                yield item
+
+
+class BlockToBatchIterator:
+    def __init__(
+        self, block_iter: Iterator[Block], batcher: BatcherInterface, drop_last: bool
+    ):
+        self.block_iter = block_iter
+        self.batcher = batcher
+        self.drop_last = drop_last
+        self.global_counter = 0
+
+    def __iter__(self):
+
+        for block in self.block_iter:
+            self.batcher.add(block)
+            while self.batcher.has_batch():
+                batch = self.batcher.next_batch()
+                yield Batch(
+                    metadata=BatchMetadata(batch_idx=self.global_counter),
+                    data=batch,
+                )
+                self.global_counter += 1
+
+        # Signal to the batcher that there are no more blocks to add.
+        self.batcher.done_adding()
+
+        # Get any leftover batches in ShufflingBatcher.
+        while self.batcher.has_batch():
+            batch = self.batcher.next_batch()
+            yield Batch(
+                metadata=BatchMetadata(batch_idx=self.global_counter),
+                data=batch,
+            )
+            self.global_counter += 1
+
+        # Get any remaining data.
+        if not self.drop_last and self.batcher.has_any():
+            batch = self.batcher.next_batch()
+            yield Batch(
+                metadata=BatchMetadata(batch_idx=self.global_counter),
+                data=batch,
+            )
+            self.global_counter += 1
 
 
 def format_batches(
