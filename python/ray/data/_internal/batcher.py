@@ -9,7 +9,7 @@ from ray.data._internal.delegating_block_builder import DelegatingBlockBuilder
 from ray.data._internal.execution.util import memory_string
 from ray.data._internal.util import get_total_obj_store_mem_on_node
 from ray.data.block import Block, BlockAccessor
-from ray.util import log_once
+from ray.util.debug import log_once
 
 # Delay compaction until the shuffle buffer has reached this ratio over the min
 # shuffle buffer size. Setting this to 1 minimizes memory usage, at the cost of
@@ -386,7 +386,26 @@ def create_batcher(
     batcher_fn: Optional[Callable[..., BatcherInterface]] = None,
     **kwargs,
 ) -> BatcherInterface:
-    """Create a batcher."""
+    """Create a batcher that handles the batching of blocks
+
+    If the shuffling configurations are specified, then the
+    output blocks contain shuffled data.
+
+    Args:
+        batch_size: The size of batches to yield.
+        shuffle_buffer_min_size: If non-None, the data will be randomly shuffled
+            using a local in-memory shuffle buffer, and this value will serve as the
+            minimum number of rows that must be in the local in-memory shuffle buffer in
+            order to yield a batch.
+        shuffle_seed: The seed to use for the local random shuffle.
+        ensure_copy: Whether batches are always copied from the underlying base
+            blocks (not zero-copy views).
+        batcher_fn: a factory function that creates a BatcherInferface
+        **kwargs: kwargs to pass to the batcher's constructor or factory function
+
+    Returns:
+        A BatcherInterface.
+    """
 
     # Custom batchers
     if batcher_fn is not None:

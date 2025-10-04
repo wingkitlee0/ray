@@ -81,24 +81,14 @@ def blocks_to_batches(
     """Given an iterator over blocks, returns an iterator over blocks
     of the appropriate bacth size.
 
-    If the shuffling configurations are specified, then the
-    output blocks contain shuffled data.
-
     Args:
         block_iter: An iterator over blocks.
+        batcher: A batcher, which is a subclass of `BatcherInterface`.
         stats: Dataset stats object used to store block batching time.
-        batch_size: Record batch size, or None to let the system pick.
         drop_last: Whether to drop the last batch if it's incomplete.
-        shuffle_buffer_min_size: If non-None, the data will be randomly shuffled
-            using a local in-memory shuffle buffer, and this value will serve as the
-            minimum number of rows that must be in the local in-memory shuffle buffer in
-            order to yield a batch.
-        shuffle_seed: The seed to use for the local random shuffle.
-        ensure_copy: Whether batches are always copied from the underlying base
-            blocks (not zero-copy views).
 
     Returns:
-        An iterator over blocks of the given size that are potentially shuffled.
+        An iterator over batches.
     """
 
     def get_iter_next_batch_s_timer():
