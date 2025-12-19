@@ -185,6 +185,16 @@ class SerializationContext:
                 )
                 self._zero_copy_tensors_enabled = False
 
+        # TODO: Guard this behind env arg, similar to torch?
+        try:
+            import mlx.core as mx
+
+            from ray._private.mlx_serialization_utils import mlx_array_reducer
+
+            self._register_cloudpickle_reducer(mx.array, mlx_array_reducer)
+        except ImportError:
+            pass
+
         def actor_handle_reducer(obj):
             ray._private.worker.global_worker.check_connected()
             serialized, actor_handle_id, weak_ref = obj._serialization_helper()
