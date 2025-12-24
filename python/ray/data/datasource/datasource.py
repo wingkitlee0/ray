@@ -225,7 +225,24 @@ class _DatasourcePredicatePushdownMixin:
 class Datasource(_DatasourceProjectionPushdownMixin, _DatasourcePredicatePushdownMixin):
     """Interface for defining a custom :class:`~ray.data.Dataset` datasource.
 
+    User may subclass this class to implement a custom datasource. The subclass should
+    implement :meth:`.get_read_tasks` and
+    :meth:`.estimate_inmemory_data_size` to read the data and estimate the in-memory data size, respectively.
+
     To read a datasource into a dataset, use :meth:`~ray.data.read_datasource`.
+
+    Example:
+        >>> class MyDatasource(Datasource):
+        ...     def get_read_tasks(self, parallelism: int, **read_args) -> List["ReadTask"]:
+        ...         return [ReadTask(lambda: [pa.Table.from_pydict({"data": range(10)})], BlockMetadata(10, 80, None, None))]
+        ...     def estimate_inmemory_data_size(self) -> Optional[int]:
+        ...         return 80
+        >>> ds = MyDatasource()
+        >>> tasks = ds.get_read_tasks(parallelism=1)
+        >>> len(tasks) == 1
+        True
+        >>> tasks[0].metadata.num_rows == 10
+        True
     """  # noqa: E501
 
     def __init__(self):
@@ -286,6 +303,8 @@ class Datasource(_DatasourceProjectionPushdownMixin, _DatasourcePredicatePushdow
 
     @property
     def should_create_reader(self) -> bool:
+        """Return True if the datasource should create a legacy reader"""
+
         has_implemented_get_read_tasks = (
             type(self).get_read_tasks is not Datasource.get_read_tasks
         )
@@ -293,9 +312,10 @@ class Datasource(_DatasourceProjectionPushdownMixin, _DatasourcePredicatePushdow
             type(self).estimate_inmemory_data_size
             is not Datasource.estimate_inmemory_data_size
         )
-        return (
-            not has_implemented_get_read_tasks
-            or not has_implemented_estimate_inmemory_data_size
+        # False when both get_read_tasks and estimate_inmemory_data_size are implemented
+        return not (
+            has_implemented_get_read_tasks
+            and has_implemented_estimate_inmemory_data_size
         )
 
     @property
