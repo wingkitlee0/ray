@@ -84,6 +84,29 @@ RandomState = Union[
 ]
 
 
+def get_domain_repr(domain: "Domain", include_domain_type: bool = False) -> str:
+    """Get representation of a domain."""
+    sampler = domain.get_sampler()
+
+    def _get_sampler_repr(sampler: "Sampler") -> str:
+        """Recursively get representation of a sampler."""
+        match sampler:
+            case Normal():
+                return sampler.__repr__()
+            case Quantized():
+                inner_repr = _get_sampler_repr(sampler.sampler)
+                return f"Quantized({inner_repr}, {sampler.q})"
+            case _:
+                domain_type = domain.__class__.__name__
+                domain_str = domain.domain_str.strip("()")
+                if include_domain_type:
+                    return f"{sampler.__repr__()}[{domain_type}]({domain_str})"
+                else:
+                    return f"{sampler.__repr__()}({domain_str})"
+
+    return _get_sampler_repr(sampler)
+
+
 @DeveloperAPI
 class Domain:
     """Base class to specify a type and valid range to sample parameters from.
@@ -146,6 +169,9 @@ class Domain:
     def domain_str(self):
         return "(unknown)"
 
+    def __repr__(self):
+        return get_domain_repr(self)
+
 
 @DeveloperAPI
 class Sampler:
@@ -157,6 +183,10 @@ class Sampler:
         random_state: "RandomState" = None,
     ):
         raise NotImplementedError
+
+    def __repr__(self):
+        """Default repr for Sampler"""
+        return self.__class__.__name__.lstrip("_")
 
 
 @DeveloperAPI
@@ -191,6 +221,10 @@ class Normal(Sampler):
 
     def __str__(self):
         return "Normal"
+
+    def __repr__(self):
+        """Custom repr for Normal Sampler"""
+        return f"Normal({self.mean}, {self.sd})"
 
 
 @DeveloperAPI
