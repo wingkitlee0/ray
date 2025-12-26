@@ -84,29 +84,6 @@ RandomState = Union[
 ]
 
 
-def get_domain_repr(domain: "Domain", include_domain_type: bool = False) -> str:
-    """Get representation of a domain."""
-    sampler = domain.get_sampler()
-
-    def _get_sampler_repr(sampler: "Sampler") -> str:
-        """Recursively get representation of a sampler."""
-        match sampler:
-            case Normal():
-                return sampler.__repr__()
-            case Quantized():
-                inner_repr = _get_sampler_repr(sampler.sampler)
-                return f"Quantized({inner_repr}, {sampler.q})"
-            case _:
-                domain_type = domain.__class__.__name__
-                domain_str = domain.domain_str.strip("()")
-                if include_domain_type:
-                    return f"{sampler.__repr__()}[{domain_type}]({domain_str})"
-                else:
-                    return f"{sampler.__repr__()}({domain_str})"
-
-    return _get_sampler_repr(sampler)
-
-
 @DeveloperAPI
 class Domain:
     """Base class to specify a type and valid range to sample parameters from.
@@ -171,6 +148,38 @@ class Domain:
 
     def __repr__(self):
         return get_domain_repr(self)
+
+
+def get_domain_repr(domain: "Domain", include_domain_type: bool = False) -> str:
+    """Get representation of a Domain object.
+
+    Args:
+        domain: The Domain object to get the representation of.
+        include_domain_type: Whether to include the domain type in the representation.
+
+    Returns:
+        The representation of the Domain object.
+    """
+    sampler = domain.get_sampler()
+
+    def get_non_wrapped_sampler_repr(sampler: "Sampler") -> str:
+        """Get representation of a non-wrapped sampler."""
+        if type(sampler).__repr__ != Sampler.__repr__:
+            return sampler.__repr__()
+
+        # Default repr uses domain_str
+        domain_str = domain.domain_str.strip("()")
+        if include_domain_type:
+            domain_type = domain.__class__.__name__
+            return f"{sampler.__repr__()}[{domain_type}]({domain_str})"
+        return f"{sampler.__repr__()}({domain_str})"
+
+    # Quantized is a special case that wraps another sampler.
+    if isinstance(sampler, Quantized):
+        inner_repr = get_non_wrapped_sampler_repr(sampler.sampler)
+        return f"Quantized({inner_repr}, {sampler.q})"
+
+    return get_non_wrapped_sampler_repr(sampler)
 
 
 @DeveloperAPI
