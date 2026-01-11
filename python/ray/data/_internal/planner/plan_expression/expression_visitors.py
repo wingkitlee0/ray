@@ -8,10 +8,10 @@ from ray.data.expressions import (
     DownloadExpr,
     Expr,
     LiteralExpr,
-    NullaryExpr,
-    NullaryOperation,
     Operation,
     StarExpr,
+    SyntheticExpr,
+    SyntheticOperation,
     UDFExpr,
     UnaryExpr,
     _CallableClassUDF,
@@ -80,8 +80,8 @@ class _ExprVisitorBase(_ExprVisitor[None]):
         """Visit a download expression (no columns to collect)."""
         pass
 
-    def visit_nullary(self, expr: "NullaryExpr") -> None:
-        """Visit a nullary expression (no columns to collect)."""
+    def visit_synthetic(self, expr: "SyntheticExpr") -> None:
+        """Visit a synthetic expression (no columns to collect)."""
         pass
 
 
@@ -281,17 +281,6 @@ class _ColumnSubstitutionVisitor(_ExprVisitor[Expr]):
         """
         return expr
 
-    def visit_nullary(self, expr: "NullaryExpr") -> Expr:
-        """Visit a nullary expression (no rewriting needed).
-
-        Args:
-            expr: The nullary expression.
-
-        Returns:
-            The original nullary expression.
-        """
-        return expr
-
     def visit_star(self, expr: StarExpr) -> Expr:
         """Visit a star expression (no rewriting needed).
 
@@ -300,6 +289,17 @@ class _ColumnSubstitutionVisitor(_ExprVisitor[Expr]):
 
         Returns:
             The original star expression.
+        """
+        return expr
+
+    def visit_synthetic(self, expr: "SyntheticExpr") -> Expr:
+        """Visit a synthetic expression (no rewriting needed).
+
+        Args:
+            expr: The synthetic expression.
+
+        Returns:
+            The original synthetic expression.
         """
         return expr
 
@@ -427,9 +427,9 @@ class _TreeReprVisitor(_ExprVisitor[str]):
     def visit_download(self, expr: "DownloadExpr") -> str:
         return self._make_tree_lines(f"DOWNLOAD({expr.uri_column_name!r})", expr=expr)
 
-    def visit_nullary(self, expr: "NullaryExpr") -> str:
-        """Visit a nullary expression and handle based on operation type."""
-        return self._make_tree_lines(expr.op.name, expr=expr)
+    def visit_synthetic(self, expr: "SyntheticExpr") -> str:
+        """Visit a synthetic expression and handle based on operation type."""
+        return self._make_tree_lines(f"{expr.op.name}()", expr=expr)
 
     def visit_star(self, expr: "StarExpr") -> str:
         return self._make_tree_lines("COL(*)", expr=expr)
@@ -519,9 +519,9 @@ class _InlineExprReprVisitor(_ExprVisitor[str]):
         """Visit a download expression and return its inline representation."""
         return f"download({expr.uri_column_name!r})"
 
-    def visit_nullary(self, expr: "NullaryExpr") -> str:
-        """Visit a nullary expression and return its inline representation."""
-        if expr.op == NullaryOperation.RANDOM:
+    def visit_synthetic(self, expr: "SyntheticExpr") -> str:
+        """Visit a synthetic expression and return its inline representation."""
+        if expr.op == SyntheticOperation.RANDOM:
             # ray.data.expressions.random() always add
             # seed and reseed_after_execution to the kwargs
             seed = expr.kwargs["seed"]
@@ -533,7 +533,7 @@ class _InlineExprReprVisitor(_ExprVisitor[str]):
 
             return "random()"
         else:
-            # For future nullary operations, add handling here
+            # For future synthetic operations, add handling here
             return f"{expr.op.value}()"
 
     def visit_star(self, expr: "StarExpr") -> str:
