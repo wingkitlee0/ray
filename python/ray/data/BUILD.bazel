@@ -1960,9 +1960,9 @@ py_test(
 )
 
 py_test(
-    name = "test_nullary_expression",
+    name = "test_synthetic_expression",
     size = "small",
-    srcs = ["tests/test_nullary_expression.py"],
+    srcs = ["tests/test_synthetic_expression.py"],
     tags = [
         "exclusive",
         "team:data",

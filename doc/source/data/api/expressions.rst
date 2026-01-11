@@ -44,7 +44,7 @@ instantiate them directly, but you may encounter them when working with expressi
     UDFExpr
     StarExpr
     DownloadExpr
-    NullaryExpr
+    SyntheticExpr
 
 Expression namespaces
 ------------------------------------

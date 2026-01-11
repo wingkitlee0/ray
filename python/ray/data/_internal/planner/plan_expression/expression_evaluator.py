@@ -22,10 +22,10 @@ from ray.data.expressions import (
     DownloadExpr,
     Expr,
     LiteralExpr,
-    NullaryExpr,
-    NullaryOperation,
     Operation,
     StarExpr,
+    SyntheticExpr,
+    SyntheticOperation,
     UDFExpr,
     UnaryExpr,
     _ExprVisitor,
@@ -707,34 +707,34 @@ class NativeExpressionEvaluator(_ExprVisitor[Union[BlockColumn, ScalarType]]):
             "DownloadExpr evaluation is not yet implemented in NativeExpressionEvaluator."
         )
 
-    def visit_nullary(self, expr: NullaryExpr) -> Union[BlockColumn, ScalarType]:
-        """Visit a nullary expression and handle based on operation type.
+    def visit_synthetic(self, expr: SyntheticExpr) -> Union[BlockColumn, ScalarType]:
+        """Visit a synthetic expression and handle based on operation type.
 
         Args:
-            expr: The nullary expression.
+            expr: The synthetic expression.
 
         Returns:
-            The evaluated result based on the nullary operation type.
+            The evaluated result based on the synthetic operation type.
         """
-        from ray.data._internal.planner.plan_expression.nullary_impl import (
+        from ray.data._internal.planner.plan_expression.synthetic_impl import (
             eval_random,
             eval_uuid,
         )
 
-        if expr.op == NullaryOperation.RANDOM:
+        if expr.op == SyntheticOperation.RANDOM:
             return eval_random(
                 self.block_accessor.num_rows(),
                 self.block_accessor.block_type(),
                 seed=expr.kwargs["seed"],
                 reseed_after_execution=expr.kwargs["reseed_after_execution"],
             )
-        elif expr.op == NullaryOperation.UUID:
+        elif expr.op == SyntheticOperation.UUID:
             return eval_uuid(
                 self.block_accessor.num_rows(),
                 self.block_accessor.block_type(),
             )
         else:
-            raise TypeError(f"Unsupported nullary operation: {expr.op}")
+            raise TypeError(f"Unsupported synthetic operation: {expr.op}")
 
 
 def eval_expr(expr: Expr, block: Block) -> Union[BlockColumn, ScalarType]:

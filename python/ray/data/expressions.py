@@ -89,16 +89,13 @@ class Operation(str, Enum):
 
 
 @DeveloperAPI(stability="alpha")
-class NullaryOperation(str, Enum):
-    """Enumeration of supported nullary operations in expressions.
+class SyntheticOperation(str, Enum):
+    """Enumeration of supported synthetic operations in expressions.
 
-    This enum defines all the nullary operations (operations that take zero
-    column arguments) that can be performed. These operations may accept
-    non-column arguments (like seeds, configuration parameters, etc.) but
-    do not operate on column data.
+    This enum defines all the synthetic operations that takes zero
+    column or expression arguments to generate values. These operations may
+    accept non-expression arguments (like seeds, configuration parameters, etc.)
 
-    Attributes:
-        RANDOM: Generate random numbers in [0, 1)
     """
 
     RANDOM = "random"
@@ -125,8 +122,8 @@ class _ExprVisitor(ABC, Generic[T]):
             return self.visit_download(expr)
         elif isinstance(expr, StarExpr):
             return self.visit_star(expr)
-        elif isinstance(expr, NullaryExpr):
-            return self.visit_nullary(expr)
+        elif isinstance(expr, SyntheticExpr):
+            return self.visit_synthetic(expr)
         else:
             raise TypeError(f"Unsupported expression type for conversion: {type(expr)}")
 
@@ -163,7 +160,7 @@ class _ExprVisitor(ABC, Generic[T]):
         pass
 
     @abstractmethod
-    def visit_nullary(self, expr: "NullaryExpr") -> T:
+    def visit_synthetic(self, expr: "SyntheticExpr") -> T:
         pass
 
 
@@ -230,9 +227,9 @@ class _PyArrowExpressionVisitor(_ExprVisitor["pyarrow.compute.Expression"]):
     def visit_star(self, expr: "StarExpr") -> "pyarrow.compute.Expression":
         raise TypeError("Star expressions cannot be converted to PyArrow expressions")
 
-    def visit_nullary(self, expr: "NullaryExpr") -> "pyarrow.compute.Expression":
+    def visit_synthetic(self, expr: "SyntheticExpr") -> "pyarrow.compute.Expression":
         raise TypeError(
-            "Nullary expressions cannot be converted to PyArrow expressions. "
+            "Synthetic expressions cannot be converted to PyArrow expressions. "
             "They must be evaluated directly."
         )
 
@@ -761,16 +758,16 @@ class LiteralExpr(Expr):
 
 @DeveloperAPI(stability="alpha")
 @dataclass(frozen=True, eq=False, repr=False)
-class NullaryExpr(Expr):
-    """Expression that represents a nullary operation (takes zero column or
+class SyntheticExpr(Expr):
+    """Expression that represents a synthetic operation (takes zero column or
     expression arguments).
 
-    Nullary expression generates values without requiring any input expressions,
+    Synthetic expression generates values without requiring any input expressions,
     e.g., random or uuid values. It may accept non-expression arguments for
     configurations, e.g., random seed.
 
     Args:
-        op: The nullary operation to perform
+        op: The synthetic operation to perform
         kwargs: Operation-specific keyword arguments. The valid kwargs depend on the
                 operation type.
 
@@ -778,16 +775,16 @@ class NullaryExpr(Expr):
         >>> from ray.data.expressions import random
         >>> # Generate random numbers without seed
         >>> rand_expr = random(seed=42)
-        >>> # This creates: NullaryExpr(op=NullaryOperation.RANDOM, kwargs={"seed": 42})
+        >>> # This creates: SyntheticExpr(op=SyntheticOperation.RANDOM, kwargs={"seed": 42})
     """
 
-    op: NullaryOperation
+    op: SyntheticOperation
     data_type: DataType
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
     def structurally_equals(self, other: Any) -> bool:
         return (
-            isinstance(other, NullaryExpr)
+            isinstance(other, SyntheticExpr)
             and self.op is other.op
             and self.data_type == other.data_type
             and self.kwargs == other.kwargs
@@ -1533,7 +1530,9 @@ def download(uri_column_name: str) -> DownloadExpr:
 
 
 @PublicAPI(stability="alpha")
-def random(seed: int | None = None, reseed_after_execution: bool = True) -> NullaryExpr:
+def random(
+    seed: int | None = None, reseed_after_execution: bool = True
+) -> SyntheticExpr:
     """
     Create an expression that generates random numbers.
 
@@ -1555,9 +1554,13 @@ def random(seed: int | None = None, reseed_after_execution: bool = True) -> Null
             and the provided ``seed``. Defaults to True.
 
     Returns:
-        A :class:`NullaryExpr` that generates random numbers
+        A :class:`SyntheticExpr` that generates random numbers
 
     Example:
+        >>> from ray.data.expressions import random
+        >>> random()
+        RANDOM()
+
         >>> from ray.data.expressions import random
         >>> import ray
         >>> ds = ray.data.range(10)
@@ -1590,15 +1593,15 @@ def random(seed: int | None = None, reseed_after_execution: bool = True) -> Null
         >>> ds.with_column("rand", random(seed=42, reseed_after_execution=False)).take_batch(batch_size=3)  # doctest: +SKIP
         {'id': array([0, 1, 2]), 'rand': array([0.23680187, 0.09952025, 0.09413677])}
     """
-    return NullaryExpr(
-        op=NullaryOperation.RANDOM,
+    return SyntheticExpr(
+        op=SyntheticOperation.RANDOM,
         kwargs={"seed": seed, "reseed_after_execution": reseed_after_execution},
         data_type=DataType.float64(),
     )
 
 
 @PublicAPI(stability="alpha")
-def uuid() -> NullaryExpr:
+def uuid() -> SyntheticExpr:
     """
     Create a UUID expression that generates unique identifiers.
 
@@ -1606,7 +1609,7 @@ def uuid() -> NullaryExpr:
     The identifiers are generated using the UUID4 algorithm.
 
     Returns:
-        A :class:`NullaryExpr` that generates unique identifiers
+        A :class:`SyntheticExpr` that generates unique identifiers
 
     Example:
         >>> from ray.data.expressions import uuid
@@ -1620,8 +1623,8 @@ def uuid() -> NullaryExpr:
          {'id': 4, 'uuid': 'b6265f98e2d0431ea86d837e8a16d31c'}]
 
     """
-    return NullaryExpr(
-        op=NullaryOperation.UUID,
+    return SyntheticExpr(
+        op=SyntheticOperation.UUID,
         kwargs={},
         data_type=DataType.string(),
     )
@@ -1635,13 +1638,13 @@ def uuid() -> NullaryExpr:
 # Re-export eval_expr for public use
 
 __all__ = [
-    "NullaryOperation",
+    "SyntheticOperation",
     "Operation",
     "Expr",
     "ColumnExpr",
     "LiteralExpr",
     "BinaryExpr",
-    "NullaryExpr",
+    "SyntheticExpr",
     "UnaryExpr",
     "UDFExpr",
     "DownloadExpr",

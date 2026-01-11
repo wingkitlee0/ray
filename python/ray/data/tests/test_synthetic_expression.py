@@ -4,31 +4,31 @@ import numpy as np
 import pytest
 
 import ray
-from ray.data.expressions import NullaryExpr, NullaryOperation, col, random, uuid
+from ray.data.expressions import SyntheticExpr, SyntheticOperation, col, random, uuid
 from ray.data.tests.conftest import *  # noqa
 from ray.tests.conftest import *  # noqa
 
 
 def test_random_expression_creation():
-    """Test that random() creates a NullaryExpr with RANDOM operation."""
+    """Test that random() creates a SyntheticExpr with RANDOM operation."""
     # Test without seed
     expr = random()
-    assert isinstance(expr, NullaryExpr)
-    assert expr.op == NullaryOperation.RANDOM
+    assert isinstance(expr, SyntheticExpr)
+    assert expr.op == SyntheticOperation.RANDOM
     assert expr.kwargs.get("seed") is None
     assert expr.kwargs.get("reseed_after_execution", True) is True
 
     # Test with seed
     expr = random(seed=42)
-    assert isinstance(expr, NullaryExpr)
-    assert expr.op == NullaryOperation.RANDOM
+    assert isinstance(expr, SyntheticExpr)
+    assert expr.op == SyntheticOperation.RANDOM
     assert expr.kwargs.get("seed") == 42
     assert expr.kwargs.get("reseed_after_execution", True) is True
 
     # Test with seed and reseed_after_execution=False
     expr = random(seed=42, reseed_after_execution=False)
-    assert isinstance(expr, NullaryExpr)
-    assert expr.op == NullaryOperation.RANDOM
+    assert isinstance(expr, SyntheticExpr)
+    assert expr.op == SyntheticOperation.RANDOM
     assert expr.kwargs.get("seed") == 42
     assert expr.kwargs.get("reseed_after_execution", True) is False
 
@@ -57,7 +57,7 @@ def test_random_expression_structural_equality(
 
 
 def test_random_expression_structural_equality_with_non_random_expr():
-    """Test structural equality comparison with non-nullary expression."""
+    """Test structural equality comparison with non-synthetic expression."""
     random_expr = random(seed=42)
     non_random_expr = col("id")
 
@@ -129,8 +129,8 @@ def test_random_with_different_batch_formats(ray_start_regular_shared, batch_for
 
 
 @pytest.mark.parametrize("op", [random, uuid])
-def test_nullary_empty_dataset(ray_start_regular_shared, op):
-    """Test nullary expression with empty dataset."""
+def test_synthetic_empty_dataset(ray_start_regular_shared, op):
+    """Test synthetic expression with empty dataset."""
     ds = ray.data.range(0).with_column("col", op())
     assert len(ds.take_all()) == 0
 
@@ -304,10 +304,10 @@ def test_random_reseed_after_execution_with_all_to_all_ops(
 
 
 def test_uuid_expression_creation():
-    """Test that uuid() creates a NullaryExpr with UUID operation."""
+    """Test that uuid() creates a SyntheticExpr with UUID operation."""
     expr = uuid()
-    assert isinstance(expr, NullaryExpr)
-    assert expr.op == NullaryOperation.UUID
+    assert isinstance(expr, SyntheticExpr)
+    assert expr.op == SyntheticOperation.UUID
     assert expr.kwargs == {}
 
 
@@ -322,7 +322,7 @@ def test_uuid_expression_structural_equality():
 
 
 def test_uuid_expression_structural_equality_with_non_uuid_expr():
-    """Test structural equality comparison with non-nullary expression."""
+    """Test structural equality comparison with non-synthetic expression."""
     uuid_expr = uuid()
     non_uuid_expr = col("id")
 
