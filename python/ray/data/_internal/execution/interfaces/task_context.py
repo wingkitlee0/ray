@@ -75,43 +75,37 @@ class TaskContext:
         if hasattr(_thread_local, "task_context"):
             delattr(_thread_local, "task_context")
 
+    @contextlib.contextmanager
+    def as_temporary_context(self) -> Generator["TaskContext", None, None]:
+        """
+        Create a temporary TaskContext for the current thread.
+        The TaskContext is created and set for the current thread, and is reset after the context is exited.
 
-@contextlib.contextmanager
-def create_temporary_task_context(
-    task_ctx: TaskContext,
-) -> Generator[TaskContext, None, None]:
-    """
-    Create a temporary TaskContext for the current thread.
-    The TaskContext is created and set for the current thread, and is reset after the context is exited.
+        Yields:
+            TaskContext: The created TaskContext instance.
 
-    Args:
-        task_ctx: the TaskContext instance to be registered for the current thread.
+        Examples:
+            >>> with TaskContext.as_temporary_context(TaskContext(100, "test")):
+            ...     ctx = TaskContext.get_current()
+            ...     print(ctx.task_idx)
+            100
 
-    Yields:
-        TaskContext: The created TaskContext instance.
-
-    Examples:
-        >>> with create_temporary_task_context(TaskContext(100, "test")):
-        ...     ctx = TaskContext.get_current()
-        ...     print(ctx.task_idx)
-        100
-
-        >>> ctx = TaskContext(0, "first")
-        >>> TaskContext.set_current(ctx)  # register the first context
-        >>> with create_temporary_task_context(TaskContext(1, "second")):
-        ...     ctx = TaskContext.get_current()
-        ...     print(ctx.op_name)
-        second
-        >>> ctx = TaskContext.get_current()
-        >>> print(ctx.op_name)
-        first
-    """
-    previous_ctx = TaskContext.get_current()
-    TaskContext.set_current(task_ctx)
-    try:
-        yield task_ctx
-    finally:
-        if previous_ctx is not None:
-            TaskContext.set_current(previous_ctx)
-        else:
-            TaskContext.reset_current()
+            >>> ctx = TaskContext(0, "first")
+            >>> TaskContext.set_current(ctx)  # register the first context
+            >>> with TaskContext.as_temporary_context(TaskContext(1, "second")):
+            ...     ctx = TaskContext.get_current()
+            ...     print(ctx.op_name)
+            second
+            >>> ctx = TaskContext.get_current()
+            >>> print(ctx.op_name)
+            first
+        """
+        previous_ctx = TaskContext.get_current()
+        TaskContext.set_current(self)
+        try:
+            yield self
+        finally:
+            if previous_ctx is not None:
+                TaskContext.set_current(previous_ctx)
+            else:
+                TaskContext.reset_current()
