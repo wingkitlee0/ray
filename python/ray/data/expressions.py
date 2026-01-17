@@ -28,6 +28,7 @@ from ray.util.annotations import DeveloperAPI, PublicAPI
 if TYPE_CHECKING:
     import pyarrow.compute
 
+    from ray.data.namespace_expressions.arr_namespace import _ArrayNamespace
     from ray.data.namespace_expressions.dt_namespace import _DatetimeNamespace
     from ray.data.namespace_expressions.list_namespace import _ListNamespace
     from ray.data.namespace_expressions.string_namespace import _StringNamespace
@@ -606,11 +607,19 @@ class Expr(ABC):
         return _create_pyarrow_compute_udf(pc.abs_checked)(self)
 
     @property
+    def arr(self) -> "_ArrayNamespace":
+        """Access array operations for this expression."""
+        from ray.data.namespace_expressions.arr_namespace import _ArrayNamespace
+
+        return _ArrayNamespace(self)
+
+    @property
     def list(self) -> "_ListNamespace":
         """Access list operations for this expression.
 
         Returns:
-            A _ListNamespace that provides list-specific operations.
+            A _ListNamespace that provides list-specific operations for both
+            PyArrow ``List`` and ``FixedSizeList`` columns.
 
         Example:
             >>> from ray.data.expressions import col
@@ -1658,6 +1667,7 @@ __all__ = [
     "random",
     "star",
     "uuid",
+    "_ArrayNamespace",
     "_ListNamespace",
     "_StringNamespace",
     "_StructNamespace",
@@ -1667,7 +1677,11 @@ __all__ = [
 
 def __getattr__(name: str):
     """Lazy import of namespace classes to avoid circular imports."""
-    if name == "_ListNamespace":
+    if name == "_ArrayNamespace":
+        from ray.data.namespace_expressions.arr_namespace import _ArrayNamespace
+
+        return _ArrayNamespace
+    elif name == "_ListNamespace":
         from ray.data.namespace_expressions.list_namespace import _ListNamespace
 
         return _ListNamespace

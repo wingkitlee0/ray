@@ -443,8 +443,7 @@ class IcebergDatasource(Datasource):
         if parallelism > len(list(plan_files)):
             parallelism = len(list(plan_files))
             logger.warning(
-                f"Reducing the parallelism to {parallelism}, as that is the"
-                "number of files"
+                f"Reducing the parallelism to {parallelism}, as that is the number of files"
             )
 
         # Get required properties for reading tasks - table IO, table metadata,
