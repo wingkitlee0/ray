@@ -101,6 +101,7 @@ class SyntheticOperation(str, Enum):
 
     RANDOM = "random"
     UUID = "uuid"
+    MONOTONICALLY_INCREASING_ID = "monotonically_increasing_id"
 
 
 class _ExprVisitor(ABC, Generic[T]):
@@ -1639,6 +1640,41 @@ def uuid() -> SyntheticExpr:
     )
 
 
+@PublicAPI(stability="alpha")
+def monotonically_increasing_id() -> SyntheticExpr:
+    """
+    Create an expression that generates monotonically increasing IDs.
+
+    The generated IDs are guaranteed to be monotonically increasing and unique,
+    but not consecutive. The current implementation puts the task ID in the upper
+    31 bits, and the record number within each task in the lower 33 bits. Records
+    within the block(s) assigned to a task receive consecutive IDs. Note that IDs
+    are not globally ordered across tasks.
+
+    The assumption is that the dataset schedules less than 1 billion tasks, and
+    each task processes less than 8 billion records.
+
+    The function is non-deterministic because its result depends on task IDs.
+
+    Returns:
+        A :class:`SyntheticExpr` that generates unique IDs.
+
+    Example:
+        >>> from ray.data.expressions import monotonically_increasing_id
+        >>> import ray
+        >>> ds = ray.data.range(4, override_num_blocks=2)
+        >>> ds = ds.with_column("uid", monotonically_increasing_id())
+        >>> ds.take_all()  # doctest: +SKIP
+        [{'id': 0, 'uid': 0}, {'id': 1, 'uid': 1}, {'id': 2, 'uid': 8589934592}, {'id': 3, 'uid': 8589934593}]
+
+    """
+    return SyntheticExpr(
+        op=SyntheticOperation.MONOTONICALLY_INCREASING_ID,
+        kwargs={},
+        data_type=DataType.int64(),
+    )
+
+
 # ──────────────────────────────────────
 # Public API for evaluation
 # ──────────────────────────────────────
@@ -1664,6 +1700,7 @@ __all__ = [
     "col",
     "lit",
     "download",
+    "monotonically_increasing_id",
     "random",
     "star",
     "uuid",
