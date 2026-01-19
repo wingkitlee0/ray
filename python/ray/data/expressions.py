@@ -1433,21 +1433,6 @@ class StarExpr(Expr):
         return isinstance(other, StarExpr)
 
 
-@DeveloperAPI(stability="alpha")
-@dataclass(frozen=True, eq=False, repr=False)
-class MonotonicallyIncreasingIdExpr(Expr):
-    """Expression that represents a monotonically increasing ID column."""
-
-    # Unique identifier for each expression to isolate row count state
-    _instance_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-
-    data_type: DataType = field(default_factory=lambda: DataType.int64(), init=False)
-
-    def structurally_equals(self, other: Any) -> bool:
-        # Non-deterministic, never structurally equal to another expression
-        return False
-
-
 @PublicAPI(stability="beta")
 def col(name: str) -> ColumnExpr:
     """
@@ -1672,7 +1657,7 @@ def monotonically_increasing_id() -> SyntheticExpr:
     The function is non-deterministic because its result depends on task IDs.
 
     Returns:
-        A MonotonicallyIncreasingIdExpr that generates unique IDs.
+        A :class:`SyntheticExpr` that generates unique IDs.
 
     Example:
         >>> from ray.data.expressions import monotonically_increasing_id
