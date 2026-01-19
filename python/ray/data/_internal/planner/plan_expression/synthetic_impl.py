@@ -107,3 +107,47 @@ def eval_uuid(
         return pa.array(arr, type=pa.string())
 
     raise TypeError(f"Unsupported block type: {block_type}")
+
+
+def eval_monotonically_increasing_id(
+    num_rows: int,
+    block_type: BlockType,
+) -> BlockColumn:
+    """Implementation of the monotonically_increasing_id expression.
+
+    Args:
+        num_rows: The number of rows to generate monotonically increasing id values for.
+        block_type: The type of block to generate monotonically increasing id values for.
+    """
+    ctx = TaskContext.get_current()
+    assert ctx is not None, "TaskContext is required for monotonically_increasing_id()"
+
+    # Key the counter by expression instance ID so that multiple expressions
+    # in the same projection will have isolated row count state
+    counter_key = str(ctx.task_idx)
+
+    start_idx = ctx.kwargs.get(counter_key, 0)
+    end_idx = start_idx + num_rows
+    ctx.kwargs[counter_key] = end_idx
+
+    # int64 (signed): upper 30 bits = task ID, lower 33 bits = row number
+    ROW_BITS = 33
+    TASK_BITS = 30
+    if end_idx.bit_length() > ROW_BITS:
+        raise ValueError(
+            f"Cannot generate monotonically increasing IDs: row count for this task exceeds the maximum allowed value of {(1<<ROW_BITS)-1}"
+        )
+    elif ctx.task_idx.bit_length() > TASK_BITS:
+        raise ValueError(
+            f"Cannot generate monotonically increasing IDs: number of tasks exceeds the maximum allowed value of {(1<<TASK_BITS)-1}"
+        )
+
+    partition_mask = ctx.task_idx << ROW_BITS
+    ids = partition_mask + np.arange(start_idx, end_idx, dtype=np.int64)
+
+    if block_type == BlockType.PANDAS:
+        return pd.Series(ids)
+    elif block_type == BlockType.ARROW:
+        return pa.array(ids, type=pa.int64())
+
+    raise TypeError(f"Unsupported block type: {block_type}")
