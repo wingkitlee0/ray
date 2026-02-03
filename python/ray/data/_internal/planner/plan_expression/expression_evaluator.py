@@ -717,6 +717,7 @@ class NativeExpressionEvaluator(_ExprVisitor[Union[BlockColumn, ScalarType]]):
             The evaluated result based on the synthetic operation type.
         """
         from ray.data._internal.planner.plan_expression.synthetic_impl import (
+            eval_monotonically_increasing_id,
             eval_random,
             eval_uuid,
         )
@@ -730,6 +731,11 @@ class NativeExpressionEvaluator(_ExprVisitor[Union[BlockColumn, ScalarType]]):
             )
         elif expr.op == SyntheticOperation.UUID:
             return eval_uuid(
+                self.block_accessor.num_rows(),
+                self.block_accessor.block_type(),
+            )
+        elif expr.op == SyntheticOperation.MONOTONICALLY_INCREASING_ID:
+            return eval_monotonically_increasing_id(
                 self.block_accessor.num_rows(),
                 self.block_accessor.block_type(),
             )
