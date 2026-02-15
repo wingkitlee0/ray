@@ -5,6 +5,7 @@ from typing import Callable, Iterable, List, Optional, Tuple, Union
 import numpy as np
 
 from ray.data._internal.delegating_block_builder import DelegatingBlockBuilder
+from ray.data._internal.execution.interfaces.task_context import TaskContext
 from ray.data._internal.planner.exchange.interfaces import ExchangeTaskSpec
 from ray.data.block import (
     Block,
@@ -56,15 +57,13 @@ class ShuffleTaskSpec(ExchangeTaskSpec):
     ) -> List[Union[Block, "BlockMetadataWithSchema"]]:
         stats = BlockExecStats.builder()
         if upstream_map_fn:
-            # TODO: Support dynamic block splitting in
-            # all-to-all ops, to avoid having to re-fuse
-            # upstream blocks together.
-
-            # Create a TaskContext for the upstream map function
-            # This is needed when expressions like random() require TaskContext
-            from ray.data._internal.execution.interfaces.task_context import TaskContext
-
-            with TaskContext(idx, "ShuffleMap").as_temporary_context():
+            # Create a local TaskContext for the upstream map function.
+            # May be used by expressions that depend on task-level state.
+            local_ctx = TaskContext(task_idx=idx, op_name="shuffle_map")
+            with TaskContext.current(local_ctx):
+                # TODO: Support dynamic block splitting in
+                # all-to-all ops, to avoid having to re-fuse
+                # upstream blocks together.
                 upstream_map_iter = upstream_map_fn([block])
                 mapped_block = next(upstream_map_iter)
                 builder = BlockAccessor.for_block(mapped_block).builder()
