@@ -24,6 +24,7 @@ from ray.data.expressions import (
     MonotonicallyIncreasingIdExpr,
     Operation,
     StarExpr,
+    SyntheticExpr,
     UDFExpr,
     UnaryExpr,
 )
@@ -183,6 +184,14 @@ class _IcebergExpressionVisitor(
         """Monotonically increasing ID expressions cannot be converted to Iceberg expressions."""
         raise TypeError(
             "monotonically_increasing_id expressions cannot be converted to Iceberg filter expressions."
+        )
+
+    def visit_synthetic(
+        self, expr: "SyntheticExpr"
+    ) -> "BooleanExpression | UnboundTerm[Any] | Literal[Any]":
+        """Synthetic expressions cannot be converted to Iceberg expressions."""
+        raise TypeError(
+            "Synthetic expressions cannot be converted to Iceberg filter expressions."
         )
 
 

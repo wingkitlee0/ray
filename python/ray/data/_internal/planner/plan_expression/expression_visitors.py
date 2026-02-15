@@ -11,6 +11,8 @@ from ray.data.expressions import (
     MonotonicallyIncreasingIdExpr,
     Operation,
     StarExpr,
+    SyntheticExpr,
+    SyntheticOperation,
     UDFExpr,
     UnaryExpr,
     _CallableClassUDF,
@@ -83,6 +85,10 @@ class _ExprVisitorBase(_ExprVisitor[None]):
         self, expr: "MonotonicallyIncreasingIdExpr"
     ) -> None:
         """Visit a monotonically_increasing_id expression (no columns to collect)."""
+        pass
+
+    def visit_synthetic(self, expr: "SyntheticExpr") -> None:
+        """Visit a synthetic expression (no columns to collect)."""
         pass
 
 
@@ -306,6 +312,17 @@ class _ColumnSubstitutionVisitor(_ExprVisitor[Expr]):
         """
         return expr
 
+    def visit_synthetic(self, expr: "SyntheticExpr") -> Expr:
+        """Visit a synthetic expression (no rewriting needed).
+
+        Args:
+            expr: The synthetic expression.
+
+        Returns:
+            The original synthetic expression.
+        """
+        return expr
+
 
 def _is_col_expr(expr: Expr) -> bool:
     return isinstance(expr, ColumnExpr) or (
@@ -430,6 +447,10 @@ class _TreeReprVisitor(_ExprVisitor[str]):
     def visit_download(self, expr: "DownloadExpr") -> str:
         return self._make_tree_lines(f"DOWNLOAD({expr.uri_column_name!r})", expr=expr)
 
+    def visit_synthetic(self, expr: "SyntheticExpr") -> str:
+        """Visit a synthetic expression and handle based on operation type."""
+        return self._make_tree_lines(f"{expr.op.name}()", expr=expr)
+
     def visit_star(self, expr: "StarExpr") -> str:
         return self._make_tree_lines("COL(*)", expr=expr)
 
@@ -522,6 +543,23 @@ class _InlineExprReprVisitor(_ExprVisitor[str]):
     def visit_download(self, expr: "DownloadExpr") -> str:
         """Visit a download expression and return its inline representation."""
         return f"download({expr.uri_column_name!r})"
+
+    def visit_synthetic(self, expr: "SyntheticExpr") -> str:
+        """Visit a synthetic expression and return its inline representation."""
+        if expr.op == SyntheticOperation.RANDOM:
+            # ray.data.expressions.random() always add
+            # seed and reseed_after_execution to the kwargs
+            seed = expr.kwargs["seed"]
+            if seed is not None:
+                parts = [f"{seed=}"]
+                reseed_after_execution = expr.kwargs["reseed_after_execution"]
+                parts.append(f"{reseed_after_execution=}")
+                return f"random({', '.join(parts)})"
+
+            return "random()"
+        else:
+            # For future synthetic operations, add handling here
+            return f"{expr.op.value}()"
 
     def visit_star(self, expr: "StarExpr") -> str:
         """Visit a star expression and return its inline representation."""
