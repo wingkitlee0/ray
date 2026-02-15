@@ -11,10 +11,10 @@ from ray.data.expressions import (
     MonotonicallyIncreasingIdExpr,
     Operation,
     StarExpr,
-    SyntheticExpr,
-    SyntheticOperation,
+    RandomExpr,
     UDFExpr,
     UnaryExpr,
+    UUIDExpr,
     _CallableClassUDF,
     _ExprVisitor,
 )
@@ -87,10 +87,13 @@ class _ExprVisitorBase(_ExprVisitor[None]):
         """Visit a monotonically_increasing_id expression (no columns to collect)."""
         pass
 
-    def visit_synthetic(self, expr: "SyntheticExpr") -> None:
+    def visit_random(self, expr: "RandomExpr") -> None:
         """Visit a synthetic expression (no columns to collect)."""
         pass
 
+    def visit_uuid(self, expr: "UUIDExpr") -> None:
+        """Visit a uuid expression (no columns to collect)."""
+        pass
 
 class _ColumnReferenceCollector(_ExprVisitorBase):
     """Visitor that collects all column references from expression trees.
@@ -312,14 +315,25 @@ class _ColumnSubstitutionVisitor(_ExprVisitor[Expr]):
         """
         return expr
 
-    def visit_synthetic(self, expr: "SyntheticExpr") -> Expr:
-        """Visit a synthetic expression (no rewriting needed).
+    def visit_random(self, expr: "RandomExpr") -> Expr:
+        """Visit a random expression (no rewriting needed).
 
         Args:
-            expr: The synthetic expression.
+            expr: The random expression.
 
         Returns:
-            The original synthetic expression.
+            The original random expression.
+        """
+        return expr
+
+    def visit_uuid(self, expr: "UUIDExpr") -> Expr:
+        """Visit a uuid expression (no rewriting needed).
+
+        Args:
+            expr: The uuid expression.
+
+        Returns:
+            The original uuid expression.
         """
         return expr
 
@@ -447,10 +461,6 @@ class _TreeReprVisitor(_ExprVisitor[str]):
     def visit_download(self, expr: "DownloadExpr") -> str:
         return self._make_tree_lines(f"DOWNLOAD({expr.uri_column_name!r})", expr=expr)
 
-    def visit_synthetic(self, expr: "SyntheticExpr") -> str:
-        """Visit a synthetic expression and handle based on operation type."""
-        return self._make_tree_lines(f"{expr.op.name}()", expr=expr)
-
     def visit_star(self, expr: "StarExpr") -> str:
         return self._make_tree_lines("COL(*)", expr=expr)
 
@@ -458,6 +468,12 @@ class _TreeReprVisitor(_ExprVisitor[str]):
         self, expr: "MonotonicallyIncreasingIdExpr"
     ) -> str:
         return self._make_tree_lines("MONOTONICALLY_INCREASING_ID()", expr=expr)
+
+    def visit_random(self, expr: "RandomExpr") -> str:
+        return self._make_tree_lines(f"RANDOM()", expr=expr)
+
+    def visit_uuid(self, expr: "UUIDExpr") -> str:
+        return self._make_tree_lines(f"UUID()", expr=expr)
 
 
 class _InlineExprReprVisitor(_ExprVisitor[str]):
@@ -544,23 +560,6 @@ class _InlineExprReprVisitor(_ExprVisitor[str]):
         """Visit a download expression and return its inline representation."""
         return f"download({expr.uri_column_name!r})"
 
-    def visit_synthetic(self, expr: "SyntheticExpr") -> str:
-        """Visit a synthetic expression and return its inline representation."""
-        if expr.op == SyntheticOperation.RANDOM:
-            # ray.data.expressions.random() always add
-            # seed and reseed_after_execution to the kwargs
-            seed = expr.kwargs["seed"]
-            if seed is not None:
-                parts = [f"{seed=}"]
-                reseed_after_execution = expr.kwargs["reseed_after_execution"]
-                parts.append(f"{reseed_after_execution=}")
-                return f"random({', '.join(parts)})"
-
-            return "random()"
-        else:
-            # For future synthetic operations, add handling here
-            return f"{expr.op.value}()"
-
     def visit_star(self, expr: "StarExpr") -> str:
         """Visit a star expression and return its inline representation."""
         return "col(*)"
@@ -570,6 +569,14 @@ class _InlineExprReprVisitor(_ExprVisitor[str]):
     ) -> str:
         """Visit a monotonically_increasing_id expression and return its inline representation."""
         return "monotonically_increasing_id()"
+
+    def visit_random(self, expr: "RandomExpr") -> str:
+        """Visit a random expression and return its inline representation."""
+        return "random()"
+
+    def visit_uuid(self, expr: "UUIDExpr") -> str:
+        """Visit a uuid expression and return its inline representation."""
+        return "uuid()"
 
 
 def get_column_references(expr: Expr) -> List[str]:

@@ -40,6 +40,9 @@ T = TypeVar("T")
 UDFCallable = Callable[..., "UDFExpr"]
 Decorated = Union[UDFCallable, Type[T]]
 
+# Whether to reseed the random number generator after each Ray Dataset execution.
+DEFAULT_RESEED_AFTER_EXECUTION = True
+
 
 @DeveloperAPI(stability="alpha")
 class Operation(str, Enum):
@@ -90,21 +93,6 @@ class Operation(str, Enum):
     IN = "in"
     NOT_IN = "not_in"
 
-
-@DeveloperAPI(stability="alpha")
-class SyntheticOperation(str, Enum):
-    """Enumeration of supported synthetic operations in expressions.
-
-    This enum defines all the synthetic operations that takes zero
-    column or expression arguments to generate values. These operations may
-    accept non-expression arguments (like seeds, configuration parameters, etc.)
-
-    """
-
-    RANDOM = "random"
-    UUID = "uuid"
-
-
 class _ExprVisitor(ABC, Generic[T]):
     """Base visitor with generic dispatch for Ray Data expressions."""
 
@@ -127,8 +115,10 @@ class _ExprVisitor(ABC, Generic[T]):
             return self.visit_star(expr)
         elif isinstance(expr, MonotonicallyIncreasingIdExpr):
             return self.visit_monotonically_increasing_id(expr)
-        elif isinstance(expr, SyntheticExpr):
-            return self.visit_synthetic(expr)
+        elif isinstance(expr, RandomExpr):
+            return self.visit_random(expr)
+        elif isinstance(expr, UUIDExpr):
+            return self.visit_uuid(expr)
         else:
             raise TypeError(f"Unsupported expression type for conversion: {type(expr)}")
 
@@ -171,7 +161,11 @@ class _ExprVisitor(ABC, Generic[T]):
         pass
 
     @abstractmethod
-    def visit_synthetic(self, expr: "SyntheticExpr") -> T:
+    def visit_random(self, expr: "RandomExpr") -> T:
+        pass
+
+    @abstractmethod
+    def visit_uuid(self, expr: "UUIDExpr") -> T:
         pass
 
 
@@ -245,11 +239,11 @@ class _PyArrowExpressionVisitor(_ExprVisitor["pyarrow.compute.Expression"]):
             "Monotonically Increasing ID expressions cannot be converted to PyArrow expressions"
         )
 
-    def visit_synthetic(self, expr: "SyntheticExpr") -> "pyarrow.compute.Expression":
-        raise TypeError(
-            "Synthetic expressions cannot be converted to PyArrow expressions. "
-            "They must be evaluated directly."
-        )
+    def visit_random(self, expr: "RandomExpr") -> "pyarrow.compute.Expression":
+        raise TypeError("Random expressions cannot be converted to PyArrow expressions")
+
+    def visit_uuid(self, expr: "UUIDExpr") -> "pyarrow.compute.Expression":
+        raise TypeError("UUID expressions cannot be converted to PyArrow expressions")
 
 
 @DeveloperAPI(stability="alpha")
@@ -843,42 +837,6 @@ class LiteralExpr(Expr):
             and self.value == other.value
             and type(self.value) is type(other.value)
         )
-
-
-@DeveloperAPI(stability="alpha")
-@dataclass(frozen=True, eq=False, repr=False)
-class SyntheticExpr(Expr):
-    """Expression that represents a synthetic operation (takes zero column or
-    expression arguments).
-
-    Synthetic expression generates values without requiring any input expressions,
-    e.g., random or uuid values. It may accept non-expression arguments for
-    configurations, e.g., random seed.
-
-    Args:
-        op: The synthetic operation to perform
-        kwargs: Operation-specific keyword arguments. The valid kwargs depend on the
-                operation type.
-
-    Example:
-        >>> from ray.data.expressions import random
-        >>> # Generate random numbers without seed
-        >>> rand_expr = random(seed=42)
-        >>> # This creates: SyntheticExpr(op=SyntheticOperation.RANDOM, kwargs={"seed": 42})
-    """
-
-    op: SyntheticOperation
-    data_type: DataType
-    kwargs: Dict[str, Any] = field(default_factory=dict)
-
-    def structurally_equals(self, other: Any) -> bool:
-        return (
-            isinstance(other, SyntheticExpr)
-            and self.op is other.op
-            and self.data_type == other.data_type
-            and self.kwargs == other.kwargs
-        )
-
 
 @DeveloperAPI(stability="alpha")
 @dataclass(frozen=True, eq=False, repr=False)
@@ -1542,6 +1500,53 @@ class MonotonicallyIncreasingIdExpr(Expr):
         return False
 
 
+@DeveloperAPI
+@dataclass(frozen=True, eq=False, repr=False)
+class RandomExpr(Expr):
+    """Expression that represents a random number generation operation.
+
+    Args:
+        kwargs: Keyword arguments for the random number generation.
+
+    Example:
+        >>> from ray.data.expressions import RandomExpr
+        >>> # Generate random numbers without seed
+        >>> RandomExpr(seed=42)
+        RandomExpr(data_type=DataType.float64(), kwargs={"seed": 42})
+    """
+
+    seed: int | None = None
+    reseed_after_execution: bool = DEFAULT_RESEED_AFTER_EXECUTION
+    data_type: DataType = DataType.float64()
+
+
+    def structurally_equals(self, other: Any) -> bool:
+        return (
+            isinstance(other, RandomExpr)
+            and self.data_type == other.data_type
+            and self.seed == other.seed
+            and self.reseed_after_execution == other.reseed_after_execution
+        )
+
+
+@DeveloperAPI
+@dataclass(frozen=True, eq=False, repr=False)
+class UUIDExpr(Expr):
+    """Expression that represents a UUID generation operation.
+
+    Example:
+        >>> from ray.data.expressions import UUIDExpr
+        >>> # Generate UUIDs
+        >>> UUIDExpr()
+        UUIDExpr(data_type=DataType.string())
+    """
+
+    data_type: DataType = DataType.string()
+
+    def structurally_equals(self, other: Any) -> bool:
+        return isinstance(other, UUIDExpr) and self.data_type == other.data_type
+
+
 @PublicAPI(stability="beta")
 def col(name: str) -> ColumnExpr:
     """
@@ -1687,8 +1692,8 @@ def monotonically_increasing_id() -> MonotonicallyIncreasingIdExpr:
 
 @PublicAPI(stability="alpha")
 def random(
-    seed: int | None = None, reseed_after_execution: bool = True
-) -> SyntheticExpr:
+    *, seed: int | None = None, reseed_after_execution: bool = DEFAULT_RESEED_AFTER_EXECUTION
+) -> RandomExpr:
     """
     Create an expression that generates random numbers.
 
@@ -1710,7 +1715,7 @@ def random(
             and the provided ``seed``. Defaults to True.
 
     Returns:
-        A :class:`SyntheticExpr` that generates random numbers
+        A :class:`RandomExpr` that generates random numbers
 
     Example:
         >>> from ray.data.expressions import random
@@ -1749,15 +1754,15 @@ def random(
         >>> ds.with_column("rand", random(seed=42, reseed_after_execution=False)).take_batch(batch_size=3)  # doctest: +SKIP
         {'id': array([0, 1, 2]), 'rand': array([0.23680187, 0.09952025, 0.09413677])}
     """
-    return SyntheticExpr(
-        op=SyntheticOperation.RANDOM,
-        kwargs={"seed": seed, "reseed_after_execution": reseed_after_execution},
+    return RandomExpr(
+        seed=seed,
+        reseed_after_execution=reseed_after_execution,
         data_type=DataType.float64(),
     )
 
 
 @PublicAPI(stability="alpha")
-def uuid() -> SyntheticExpr:
+def uuid() -> UUIDExpr:
     """
     Create a UUID expression that generates unique identifiers.
 
@@ -1765,7 +1770,7 @@ def uuid() -> SyntheticExpr:
     The identifiers are generated using the UUID4 algorithm.
 
     Returns:
-        A :class:`SyntheticExpr` that generates unique identifiers
+        A :class:`UUIDExpr` that generates unique identifiers
 
     Example:
         >>> from ray.data.expressions import uuid
@@ -1779,11 +1784,7 @@ def uuid() -> SyntheticExpr:
          {'id': 4, 'uuid': 'b6265f98e2d0431ea86d837e8a16d31c'}]
 
     """
-    return SyntheticExpr(
-        op=SyntheticOperation.UUID,
-        kwargs={},
-        data_type=DataType.string(),
-    )
+    return UUIDExpr()
 
 
 # ──────────────────────────────────────
@@ -1794,13 +1795,13 @@ def uuid() -> SyntheticExpr:
 # Re-export eval_expr for public use
 
 __all__ = [
-    "SyntheticOperation",
     "Operation",
     "Expr",
     "ColumnExpr",
     "LiteralExpr",
     "BinaryExpr",
-    "SyntheticExpr",
+    "RandomExpr",
+    "UUIDExpr",
     "UnaryExpr",
     "UDFExpr",
     "DownloadExpr",

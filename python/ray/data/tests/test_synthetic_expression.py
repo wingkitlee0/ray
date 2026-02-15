@@ -4,33 +4,30 @@ import numpy as np
 import pytest
 
 import ray
-from ray.data.expressions import SyntheticExpr, SyntheticOperation, col, random, uuid
+from ray.data.expressions import RandomExpr, UUIDExpr, col, random, uuid
 from ray.data.tests.conftest import *  # noqa
 from ray.tests.conftest import *  # noqa
 
 
 def test_random_expression_creation():
-    """Test that random() creates a SyntheticExpr with RANDOM operation."""
+    """Test that random() creates a RandomExpr with correct fields."""
     # Test without seed
     expr = random()
-    assert isinstance(expr, SyntheticExpr)
-    assert expr.op == SyntheticOperation.RANDOM
-    assert expr.kwargs.get("seed") is None
-    assert expr.kwargs.get("reseed_after_execution", True) is True
+    assert isinstance(expr, RandomExpr)
+    assert expr.seed is None
+    assert expr.reseed_after_execution is True
 
     # Test with seed
     expr = random(seed=42)
-    assert isinstance(expr, SyntheticExpr)
-    assert expr.op == SyntheticOperation.RANDOM
-    assert expr.kwargs.get("seed") == 42
-    assert expr.kwargs.get("reseed_after_execution", True) is True
+    assert isinstance(expr, RandomExpr)
+    assert expr.seed == 42
+    assert expr.reseed_after_execution is True
 
     # Test with seed and reseed_after_execution=False
     expr = random(seed=42, reseed_after_execution=False)
-    assert isinstance(expr, SyntheticExpr)
-    assert expr.op == SyntheticOperation.RANDOM
-    assert expr.kwargs.get("seed") == 42
-    assert expr.kwargs.get("reseed_after_execution", True) is False
+    assert isinstance(expr, RandomExpr)
+    assert expr.seed == 42
+    assert expr.reseed_after_execution is False
 
 
 @pytest.mark.parametrize(
@@ -199,14 +196,14 @@ def test_different_num_blocks_produces_different_values(
             (1, 2, 3),
             {},
             TypeError,
-            "random\\(\\) takes from 0 to 2 positional arguments but 3 were given",
+            "random\\(\\) takes 0 positional arguments but 3 were given",
         ),
         # Keyword "seed" with 1 positional arg (duplicate)
         (
             (42,),
             {"seed": 123},
             TypeError,
-            "random\\(\\) got multiple values for argument 'seed'",
+            "random\\(\\) takes 0 positional arguments but 1 positional argument",
         ),
         # Unexpected keyword argument
         (
@@ -304,11 +301,9 @@ def test_random_reseed_after_execution_with_all_to_all_ops(
 
 
 def test_uuid_expression_creation():
-    """Test that uuid() creates a SyntheticExpr with UUID operation."""
+    """Test that uuid() creates a UUIDExpr."""
     expr = uuid()
-    assert isinstance(expr, SyntheticExpr)
-    assert expr.op == SyntheticOperation.UUID
-    assert expr.kwargs == {}
+    assert isinstance(expr, UUIDExpr)
 
 
 def test_uuid_expression_structural_equality():

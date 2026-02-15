@@ -26,10 +26,10 @@ from ray.data.expressions import (
     MonotonicallyIncreasingIdExpr,
     Operation,
     StarExpr,
-    SyntheticExpr,
-    SyntheticOperation,
+    RandomExpr,
     UDFExpr,
     UnaryExpr,
+    UUIDExpr,
     _ExprVisitor,
     col,
 )
@@ -764,34 +764,38 @@ class NativeExpressionEvaluator(_ExprVisitor[Union[BlockColumn, ScalarType]]):
         else:
             raise TypeError(f"Unsupported block type: {block_type}")
 
-    def visit_synthetic(self, expr: SyntheticExpr) -> Union[BlockColumn, ScalarType]:
-        """Visit a synthetic expression and handle based on operation type.
+    def visit_random(self, expr: RandomExpr) -> Union[BlockColumn, ScalarType]:
+        """Visit a random expression and return the result of the operation.
 
         Args:
-            expr: The synthetic expression.
+            expr: The random expression.
 
         Returns:
-            The evaluated result based on the synthetic operation type.
+            The result of the random operation as a BlockColumn.
         """
         from ray.data._internal.planner.plan_expression.synthetic_impl import (
             eval_random,
-            eval_uuid,
         )
 
-        if expr.op == SyntheticOperation.RANDOM:
-            return eval_random(
-                self.block_accessor.num_rows(),
-                self.block_accessor.block_type(),
-                seed=expr.kwargs["seed"],
-                reseed_after_execution=expr.kwargs["reseed_after_execution"],
-            )
-        elif expr.op == SyntheticOperation.UUID:
-            return eval_uuid(
-                self.block_accessor.num_rows(),
-                self.block_accessor.block_type(),
-            )
-        else:
-            raise TypeError(f"Unsupported synthetic operation: {expr.op}")
+        return eval_random(
+            self.block_accessor.num_rows(),
+            self.block_accessor.block_type(),
+            seed=expr.seed,
+            reseed_after_execution=expr.reseed_after_execution,
+        )
+
+    def visit_uuid(self, expr: UUIDExpr) -> Union[BlockColumn, ScalarType]:
+        """Visit a uuid expression and return the result of the operation.
+
+        Args:
+            expr: The uuid expression.
+
+        Returns:
+            The result of the uuid operation as a BlockColumn.
+        """
+        from ray.data._internal.planner.plan_expression.synthetic_impl import eval_uuid
+
+        return eval_uuid(self.block_accessor.num_rows(), self.block_accessor.block_type())
 
 
 def eval_expr(expr: Expr, block: Block) -> Union[BlockColumn, ScalarType]:
