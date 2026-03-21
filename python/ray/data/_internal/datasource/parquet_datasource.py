@@ -815,8 +815,16 @@ class ParquetDatasource(Datasource):
         if include_paths and target_schema.get_field_index("path") == -1:
             target_schema = target_schema.append(pa.field("path", pa.string()))
 
-        if include_row_hash and target_schema.get_field_index("row_hash") == -1:
-            target_schema = target_schema.append(pa.field("row_hash", pa.uint64()))
+        if include_row_hash:
+            idx = target_schema.get_field_index("row_hash")
+            if idx == -1:
+                target_schema = target_schema.append(
+                    pa.field("row_hash", pa.uint64())
+                )
+            elif target_schema.field(idx).type != pa.uint64():
+                target_schema = target_schema.set(
+                    idx, pa.field("row_hash", pa.uint64())
+                )
 
         # Project schema if necessary
         if projected_columns is not None:
@@ -1013,7 +1021,12 @@ def _read_batches_from(
 
 
 def _compute_row_hashes(file_path: str, start_row: int, num_rows: int) -> np.ndarray:
-    """Compute deterministic uint64 hashes from file path and row position.
+    """Compute deterministic uint64 hashes from file path and output row position.
+
+    ``start_row`` is the position within the output stream (post-filter), not
+    the physical file offset.  This means hashes are reproducible for a given
+    pipeline configuration (same file + same filter) but will differ across
+    reads with different filters.
 
     Hashes the file path with MD5 to obtain a 64-bit seed, adds the row indices,
     then applies the splitmix64 finalizer (a bijective 64-bit mixing function) to
