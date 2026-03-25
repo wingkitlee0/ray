@@ -621,15 +621,27 @@ def _align_struct_fields(
     return aligned_blocks
 
 
-def shuffle(block: "pyarrow.Table", seed: Optional[int] = None) -> "pyarrow.Table":
-    """Shuffles provided Arrow table"""
+def shuffle(
+    block: "pyarrow.Table", seed: int | tuple[int, ...] | None = None
+) -> "pyarrow.Table":
+    """Shuffles provided Arrow table.
 
+    Args:
+        block: The Arrow table to shuffle.
+        seed: An integer or tuple of integers to seed
+            ``np.random.default_rng()``, or None for non-deterministic
+            shuffling.
+
+    Returns:
+        A new ``pyarrow.Table`` with rows permuted; the input table is returned
+        unchanged when it has zero rows.
+    """
     if len(block) == 0:
         return block
 
     indices = np.arange(block.num_rows)
-    # Shuffle indices
-    np.random.RandomState(seed).shuffle(indices)
+    rng = np.random.default_rng(seed)
+    rng.shuffle(indices)
 
     return take_table(block, indices)
 
