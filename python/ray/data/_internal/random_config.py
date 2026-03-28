@@ -26,6 +26,8 @@ class SeedTuple:
 
     Example::
 
+        >>> import numpy as np
+        >>> execution_idx, task_idx = 0, 1
         >>> seed = SeedTuple.create(42).spawn(execution_idx).spawn(task_idx)
         >>> rng = np.random.default_rng(seed.as_rng_seed())
     """
