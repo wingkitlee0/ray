@@ -89,10 +89,6 @@ class RandomSeedConfig:
     # Internal field set via create_with_split_index().
     # Used by iteration APIs to differentiate parallel workers/shards.
     _split_index: Optional[int] = None
-    # Set by _iter_batches() to track the epoch index. Preferred over the
-    # global DataContext._execution_idx in apply_execution_idx() to avoid
-    # races when the previous iterator execution hasn't completed yet.
-    _iteration_idx: Optional[int] = None
 
     def __post_init__(self):
         """Ensure that the seed is either None or an integer."""
@@ -132,12 +128,7 @@ class RandomSeedConfig:
             The (possibly extended) seed.
         """
         if self.reseed_after_execution:
-            idx = (
-                self._iteration_idx
-                if self._iteration_idx is not None
-                else data_context._execution_idx
-            )
-            return seed.spawn(idx)
+            return seed.spawn(data_context._execution_idx)
         return seed
 
     def make_seed(

@@ -297,6 +297,8 @@ def test_reseed_after_execution_is_reproducible(ray_start_1_cpu_shared):
 
     runs = []
     for _ in range(2):
+        # Reset execution index to simulate a fresh process/script run.
+        ray.data.DataContext.get_current()._execution_idx = 0
         it = ds.iter_batches(local_shuffle_seed=seed_cfg, **kwargs)
         epoch_results = []
         for _ in range(3):
@@ -321,29 +323,6 @@ def test_no_reseed_produces_same_iterations(ray_start_1_cpu_shared):
     first_ids = [x for batch in it for x in batch["id"].tolist()]
     second_ids = [x for batch in it for x in batch["id"].tolist()]
     assert first_ids == second_ids
-
-
-def test_reseed_after_execution_with_early_break(ray_start_1_cpu_shared):
-    """Even when the consumer breaks out early, subsequent iterations must
-    produce different (but deterministic) results."""
-    ds = ray.data.range(1000)
-    it = ds.iter_batches(
-        batch_size=50,
-        local_shuffle_buffer_size=100,
-        local_shuffle_seed=RandomSeedConfig(seed=7, reseed_after_execution=True),
-    )
-
-    partial_results = []
-    for _ in range(3):
-        first_two = []
-        for i, batch in enumerate(it):
-            first_two.append(batch["id"].tolist())
-            if i == 1:
-                break
-        partial_results.append(first_two)
-
-    assert partial_results[0] != partial_results[1]
-    assert partial_results[1] != partial_results[2]
 
 
 def test_local_shuffle_buffer_warns_if_too_large(shutdown_only):

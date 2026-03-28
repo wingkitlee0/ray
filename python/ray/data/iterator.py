@@ -1,5 +1,4 @@
 import abc
-import dataclasses
 import time
 import warnings
 from typing import (
@@ -213,23 +212,7 @@ class DataIterator(abc.ABC):
             local_shuffle_seed, self._get_split_index()
         )
 
-        _iter_count = 0
-
         def _create_iterator() -> Iterator[DataBatch]:
-            nonlocal _iter_count
-
-            # Stamp iteration index so the batcher uses a local counter
-            # rather than the global DataContext._execution_idx, which may
-            # not have been incremented yet if the previous iteration was
-            # abandoned early (e.g., the user called ``break``).
-            if shuffle_seed_config is not None:
-                current_seed_config = dataclasses.replace(
-                    shuffle_seed_config, _iteration_idx=_iter_count
-                )
-            else:
-                current_seed_config = None
-            _iter_count += 1
-
             time_start = time.perf_counter()
 
             # Iterate through the dataset from the start each time
@@ -268,7 +251,7 @@ class DataIterator(abc.ABC):
                 collate_fn=_collate_fn,
                 finalize_fn=_finalize_fn,
                 shuffle_buffer_min_size=local_shuffle_buffer_size,
-                shuffle_seed=current_seed_config,
+                shuffle_seed=shuffle_seed_config,
                 prefetch_batches=prefetch_batches,
                 prefetch_bytes_callback=prefetch_bytes_callback,
             )
