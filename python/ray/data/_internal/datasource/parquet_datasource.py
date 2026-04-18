@@ -987,9 +987,7 @@ class ParquetDatasource(Datasource):
         if include_row_hash:
             idx = target_schema.get_field_index("row_hash")
             if idx == -1:
-                target_schema = target_schema.append(
-                    pa.field("row_hash", pa.uint64())
-                )
+                target_schema = target_schema.append(pa.field("row_hash", pa.uint64()))
             elif target_schema.field(idx).type != pa.uint64():
                 target_schema = target_schema.set(
                     idx, pa.field("row_hash", pa.uint64())
