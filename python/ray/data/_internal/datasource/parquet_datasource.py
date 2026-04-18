@@ -534,11 +534,6 @@ class ParquetDatasource(Datasource):
         self._file_metadata_shuffler = None
         self._include_paths = include_paths
         self._include_row_hash = include_row_hash
-        if self._include_row_hash and "row_hash" in file_schema.names:
-            logger.warning(
-                "The Parquet file(s) already contain a column named 'row_hash'. "
-                "It will be overwritten by the generated row hash column."
-            )
         self._partitioning = partitioning
         _validate_shuffle_arg(shuffle)
         self._shuffle = shuffle
