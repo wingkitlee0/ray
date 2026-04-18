@@ -14,6 +14,7 @@ from ray.data._internal.block_batching.interfaces import (
     BlockPrefetcher,
     CollatedBatch,
 )
+from ray.data._internal.random_config import RandomSeedConfig
 from ray.data._internal.stats import DatasetStats
 from ray.data.block import Block, BlockAccessor, DataBatch
 from ray.types import ObjectRef
@@ -100,7 +101,7 @@ def blocks_to_batches(
     batch_size: Optional[int] = None,
     drop_last: bool = False,
     shuffle_buffer_min_size: Optional[int] = None,
-    shuffle_seed: Optional[int] = None,
+    shuffle_seed: RandomSeedConfig | None = None,
     ensure_copy: bool = False,
 ) -> Iterator[Batch]:
     """Given an iterator over blocks, returns an iterator over batches."""
@@ -129,7 +130,7 @@ class _BatchingIterator(Iterator[Batch]):
         batch_size: Optional[int] = None,
         drop_last: bool = False,
         shuffle_buffer_min_size: Optional[int] = None,
-        shuffle_seed: Optional[int] = None,
+        shuffle_seed: RandomSeedConfig | None = None,
         ensure_copy: bool = False,
     ):
         self._block_iter = block_iter
