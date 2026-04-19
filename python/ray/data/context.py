@@ -833,7 +833,9 @@ class DataContext:
         )
 
         # Unique id of the current execution of the data pipeline.
-        # This value increments only upon re-execution of the exact same pipeline.
+        # Advances when a consumer fully exhausts a streaming iterator (see
+        # :meth:`advance_execution_idx`) and when an eager :meth:`ExecutionPlan.execute`
+        # run completes. Used by ``RandomSeedConfig`` when ``reseed_after_execution=True``.
         self._execution_idx = 0
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -953,6 +955,22 @@ class DataContext:
         return prev
 
     @property
+    def execution_idx(self) -> int:
+        """Read-only snapshot of the current execution index."""
+        return self._execution_idx
+
+    def advance_execution_idx(self) -> int:
+        """Advance the execution index by one and return the new value.
+
+        This is invoked internally when a streaming iterator is fully exhausted
+        or an eager plan execution completes. Callers may also use it after
+        intentionally aborting an iteration if they want the next run to observe
+        a fresh execution index (for example when ``reseed_after_execution=True``).
+        """
+        self._execution_idx += 1
+        return self._execution_idx
+
+    @property
     def shuffle_strategy(self) -> ShuffleStrategy:
         if self.use_push_based_shuffle:
             logger.warning(
@@ -974,7 +992,7 @@ class DataContext:
 
         This property gathers all callback classes that should be instantiated
         by the execution planner. It includes:
-        1. Built-in default callbacks (e.g., ExecutionIdxUpdateCallback, IssueDetectionExecutionCallback).
+        1. Built-in default callbacks (e.g., IssueDetectionExecutionCallback).
         2. Custom callbacks registered via the RAY_DATA_EXECUTION_CALLBACKS environment variable.
         3. Custom callbacks programmatically added to `custom_execution_callback_classes`.
 
@@ -985,9 +1003,6 @@ class DataContext:
         Returns:
             A list of ExecutionCallback class types (not instances).
         """
-        from ray.data._internal.execution.callbacks.execution_idx_update_callback import (
-            ExecutionIdxUpdateCallback,
-        )
         from ray.data._internal.execution.callbacks.insert_issue_detectors import (
             IssueDetectionExecutionCallback,
         )
@@ -997,7 +1012,6 @@ class DataContext:
         from ray.data._internal.execution.execution_callback import ExecutionCallback
 
         classes = [
-            ExecutionIdxUpdateCallback,
             IssueDetectionExecutionCallback,
             ResourceAllocatorPrometheusCallback,
         ]

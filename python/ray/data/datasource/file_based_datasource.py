@@ -260,7 +260,7 @@ class FileBasedDatasource(Datasource):
         paths = self._paths()
         file_sizes = self._file_sizes()
 
-        execution_idx = data_context._execution_idx if data_context is not None else 0
+        execution_idx = data_context.execution_idx if data_context is not None else 0
         paths, file_sizes = _shuffle_file_metadata(
             paths, file_sizes, self._shuffle, execution_idx
         )

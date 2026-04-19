@@ -130,7 +130,7 @@ class RandomSeedConfig:
             The (possibly extended) seed.
         """
         if self.reseed_after_execution:
-            return seed.spawn(data_context._execution_idx)
+            return seed.spawn(data_context.execution_idx)
         return seed
 
     def make_seed(

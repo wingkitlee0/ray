@@ -257,15 +257,26 @@ class DataIterator(abc.ABC):
                 shuffle_seed=shuffle_seed_config,
                 prefetch_batches=prefetch_batches,
                 prefetch_bytes_callback=prefetch_bytes_callback,
+                data_context=self.get_context(),
             )
 
             if stats:
                 stats.iter_initialize_s.add(time.perf_counter() - time_start)
 
-            yield from batch_iterator
-
-            if stats:
-                stats.iter_total_s.add(time.perf_counter() - time_start)
+            gen_completed = False
+            try:
+                yield from batch_iterator
+                gen_completed = True
+            finally:
+                if stats:
+                    stats.iter_total_s.add(time.perf_counter() - time_start)
+                # Advance ``execution_idx`` only when the consumer fully exhausts
+                # the iterator. Mid-loop breaks (``GeneratorExit``), exceptions,
+                # and partial consumption preserve the index so a subsequent
+                # iteration or checkpoint resume reseeds identically when
+                # ``RandomSeedConfig(reseed_after_execution=True)`` is used.
+                if gen_completed:
+                    self.get_context().advance_execution_idx()
 
         return _IterableFromIterator(_create_iterator)
 

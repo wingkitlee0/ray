@@ -78,7 +78,7 @@ def eval_random(
             data_context = (
                 DataContext.get_current()
             )  # get or create DataContext, never None
-            execution_idx = data_context._execution_idx
+            execution_idx = data_context.execution_idx
         else:
             execution_idx = 0
 

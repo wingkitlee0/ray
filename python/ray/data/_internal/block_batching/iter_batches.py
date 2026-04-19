@@ -122,6 +122,7 @@ class BatchIterator:
         ensure_copy: bool = False,
         prefetch_batches: int = 1,
         prefetch_bytes_callback: Optional[Callable[[int], None]] = None,
+        data_context: Optional[DataContext] = None,
     ):
         self._ref_bundles = ref_bundles
         self._stats = stats
@@ -136,6 +137,7 @@ class BatchIterator:
         self._ensure_copy = ensure_copy
         self._prefetch_batches = prefetch_batches
         self._prefetch_bytes_callback = prefetch_bytes_callback
+        self._data_context = data_context
         self._eager_free = (
             clear_block_after_read and DataContext.get_current().eager_free
         )
@@ -183,6 +185,7 @@ class BatchIterator:
             shuffle_buffer_min_size=self._shuffle_buffer_min_size,
             shuffle_seed=self._shuffle_seed,
             ensure_copy=self._ensure_copy,
+            data_context=self._data_context,
         )
 
     def _format_batches(self, batches: Iterator[Batch]) -> Iterator[Batch]:

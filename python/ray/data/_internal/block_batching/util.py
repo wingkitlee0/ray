@@ -17,6 +17,7 @@ from ray.data._internal.block_batching.interfaces import (
 from ray.data._internal.random_config import RandomSeedConfig
 from ray.data._internal.stats import DatasetStats
 from ray.data.block import Block, BlockAccessor, DataBatch
+from ray.data.context import DataContext
 from ray.types import ObjectRef
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
@@ -103,6 +104,7 @@ def blocks_to_batches(
     shuffle_buffer_min_size: Optional[int] = None,
     shuffle_seed: RandomSeedConfig | None = None,
     ensure_copy: bool = False,
+    data_context: Optional[DataContext] = None,
 ) -> Iterator[Batch]:
     """Given an iterator over blocks, returns an iterator over batches."""
     return _BatchingIterator(
@@ -113,6 +115,7 @@ def blocks_to_batches(
         shuffle_buffer_min_size=shuffle_buffer_min_size,
         shuffle_seed=shuffle_seed,
         ensure_copy=ensure_copy,
+        data_context=data_context,
     )
 
 
@@ -132,6 +135,7 @@ class _BatchingIterator(Iterator[Batch]):
         shuffle_buffer_min_size: Optional[int] = None,
         shuffle_seed: RandomSeedConfig | None = None,
         ensure_copy: bool = False,
+        data_context: Optional[DataContext] = None,
     ):
         self._block_iter = block_iter
         self._stats = stats
@@ -144,6 +148,7 @@ class _BatchingIterator(Iterator[Batch]):
                 batch_size=batch_size,
                 shuffle_buffer_min_size=shuffle_buffer_min_size,
                 shuffle_seed=shuffle_seed,
+                data_context=data_context,
             )
         else:
             self._batcher = Batcher(batch_size=batch_size, ensure_copy=ensure_copy)

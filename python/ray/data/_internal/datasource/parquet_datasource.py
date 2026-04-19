@@ -677,7 +677,7 @@ class ParquetDatasource(Datasource):
         # method in order to leverage pyarrow's ParquetDataset abstraction,
         # which simplifies partitioning logic. We still use
         # FileBasedDatasource's write side, however.
-        execution_idx = data_context._execution_idx if data_context is not None else 0
+        execution_idx = data_context.execution_idx if data_context is not None else 0
         pq_fragments, pq_paths = _shuffle_file_metadata(
             self._pq_fragments, self._pq_paths, self._shuffle, execution_idx
         )

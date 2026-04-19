@@ -251,6 +251,9 @@ class ExecutionPlan:
                         preserve_order=preserve_order,
                     )
 
+                # Replacing ``ExecutionIdxUpdateCallback`` for eager execution:
+                # bump synchronously on the driver after a successful executor run.
+                context.advance_execution_idx()
                 stats = executor.get_stats()
                 stats_summary_string = stats.to_summary().to_string(
                     include_parent=False

@@ -8,7 +8,7 @@ from ray.data._internal.arrow_ops import transform_pyarrow
 from ray.data._internal.arrow_ops.transform_pyarrow import try_combine_chunked_columns
 from ray.data._internal.delegating_block_builder import DelegatingBlockBuilder
 from ray.data._internal.execution.util import memory_string
-from ray.data._internal.random_config import RandomSeedConfig
+from ray.data._internal.random_config import RandomSeedConfig, SeedTuple
 from ray.data._internal.util import get_total_obj_store_mem_on_node
 from ray.data.block import Block, BlockAccessor
 from ray.data.context import DataContext
@@ -198,6 +198,7 @@ class ShufflingBatcher(BatcherInterface):
         batch_size: Optional[int],
         shuffle_buffer_min_size: int,
         shuffle_seed: RandomSeedConfig | None = None,
+        data_context: Optional[DataContext] = None,
     ):
         """Constructs a random-shuffling block batcher.
 
@@ -213,11 +214,30 @@ class ShufflingBatcher(BatcherInterface):
             shuffle_seed: The seed configuration for the local random shuffle.
                 Use :meth:`RandomSeedConfig.create_with_split_index` to create
                 a config with the split index set for multi-worker scenarios.
+            data_context: The ``DataContext`` used to read ``execution_idx``
+                when ``shuffle_seed.reseed_after_execution`` is True. Must be
+                the dataset's sealed context — the same one advanced when a
+                streaming iterator exhausts or an eager ``execute()`` completes —
+                so successive iterations observe an incremented execution index.
         """
         if batch_size is None:
             raise ValueError("Must specify a batch_size if using a local shuffle.")
         self._batch_size = batch_size
         self._shuffle_seed = shuffle_seed
+        self._data_context = data_context
+        # Snapshot the seed (including ``execution_idx``) at construction so
+        # every compaction in this batcher's lifetime shares one base seed. This
+        # avoids inconsistent permutations if ``advance_execution_idx()`` is
+        # called while rows remain (for example from another API on the same
+        # ``DataContext``).
+        self._snapshot_base_seed: Optional[SeedTuple] = None
+        if shuffle_seed is not None:
+            base = shuffle_seed.make_base_seed()
+            if base is not None:
+                self._snapshot_base_seed = shuffle_seed.apply_execution_idx(
+                    base,
+                    data_context=data_context or DataContext.get_current(),
+                )
         self._compaction_idx = 0
         if shuffle_buffer_min_size < batch_size:
             # Round it up internally to `batch_size` since our algorithm requires it.
@@ -345,14 +365,9 @@ class ShufflingBatcher(BatcherInterface):
         When ``shuffle_seed`` is None the RNG is non-deterministic.
         """
         shuffle_seed_tuple: tuple[int, ...] | None = None
-        if self._shuffle_seed is not None:
-            seed = self._shuffle_seed.make_base_seed()
-            if seed is not None:
-                seed = self._shuffle_seed.apply_execution_idx(
-                    seed, data_context=DataContext.get_current()
-                )
-                seed = seed.spawn(self._compaction_idx)
-                shuffle_seed_tuple = seed.as_rng_seed()
+        if self._snapshot_base_seed is not None:
+            seed = self._snapshot_base_seed.spawn(self._compaction_idx)
+            shuffle_seed_tuple = seed.as_rng_seed()
         self._compaction_idx += 1
         return np.random.default_rng(shuffle_seed_tuple)
 

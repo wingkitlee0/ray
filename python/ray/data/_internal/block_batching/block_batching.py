@@ -9,6 +9,7 @@ from ray.data._internal.block_batching.util import (
 from ray.data._internal.random_config import RandomSeedConfig
 from ray.data._internal.stats import DatasetStats
 from ray.data.block import Block, DataBatch
+from ray.data.context import DataContext
 
 T = TypeVar("T")
 
@@ -24,6 +25,7 @@ def batch_blocks(
     shuffle_buffer_min_size: Optional[int] = None,
     shuffle_seed: RandomSeedConfig | None = None,
     ensure_copy: bool = False,
+    data_context: Optional[DataContext] = None,
 ) -> Iterator[DataBatch]:
     """Create formatted batches of data from 1 or more blocks.
 
@@ -40,6 +42,7 @@ def batch_blocks(
             shuffle_buffer_min_size=shuffle_buffer_min_size,
             shuffle_seed=shuffle_seed,
             ensure_copy=ensure_copy,
+            data_context=data_context,
         ),
         batch_format=batch_format,
         stats=stats,

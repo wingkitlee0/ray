@@ -254,14 +254,14 @@ def test_reseed_after_execution_produces_different_iterations(ray_start_1_cpu_sh
 def test_reseed_after_execution_is_reproducible(ray_start_1_cpu_shared):
     """Two independent iterables with the same seed must produce the same
     per-epoch results (simulating two script runs)."""
-    ds = ray.data.range(1000)
     seed_cfg = RandomSeedConfig(seed=42, reseed_after_execution=True)
     kwargs = dict(batch_size=50, local_shuffle_buffer_size=100)
 
     runs = []
     for _ in range(2):
-        # Reset execution index to simulate a fresh process/script run.
-        ray.data.DataContext.get_current()._execution_idx = 0
+        # Each fresh dataset has its own sealed ``DataContext`` with
+        # ``execution_idx == 0``, which mirrors a fresh process/script run.
+        ds = ray.data.range(1000)
         it = ds.iter_batches(local_shuffle_seed=seed_cfg, **kwargs)
         epoch_results = []
         for _ in range(3):
@@ -271,6 +271,53 @@ def test_reseed_after_execution_is_reproducible(ray_start_1_cpu_shared):
 
     for epoch_idx in range(3):
         assert runs[0][epoch_idx] == runs[1][epoch_idx]
+
+
+def test_execution_idx_advances_only_on_full_iteration(ray_start_1_cpu_shared):
+    """``execution_idx`` advances only when the iterator is naturally exhausted —
+    not on mid-loop breaks or exceptions."""
+    ds = ray.data.range(1000)
+    it = ds.iter_batches(batch_size=50)
+    assert ds.context.execution_idx == 0
+
+    for _ in it:
+        pass
+    assert ds.context.execution_idx == 1
+
+    for _ in it:
+        break
+    assert ds.context.execution_idx == 1
+
+    with pytest.raises(RuntimeError):
+        for i, _ in enumerate(it):
+            if i == 2:
+                raise RuntimeError("boom")
+    assert ds.context.execution_idx == 1
+
+    for _ in it:
+        pass
+    assert ds.context.execution_idx == 2
+
+
+def test_execution_idx_public_api(ray_start_1_cpu_shared):
+    ds = ray.data.range(10)
+    ctx = ds.context
+
+    assert ctx.execution_idx == 0
+    assert ctx.advance_execution_idx() == 1
+    assert ctx.execution_idx == 1
+    assert ctx.advance_execution_idx() == 2
+    assert ctx.execution_idx == 2
+
+
+def test_materialize_advances_execution_idx(ray_start_1_cpu_shared):
+    ds = ray.data.range(100)
+    assert ds.context.execution_idx == 0
+    m = ds.materialize()
+    # ``materialize`` executes a deep-copied plan; the counter advances on that
+    # plan's sealed context, not the original lazy dataset handle.
+    assert ds.context.execution_idx == 0
+    assert m.context.execution_idx == 1
 
 
 def test_no_reseed_produces_same_iterations(ray_start_1_cpu_shared):
