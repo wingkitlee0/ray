@@ -13,6 +13,10 @@ if TYPE_CHECKING:
         IdColumnCheckpointManager,
         NumpyArrayBasedCheckpointFilter,
     )
+    from .partitioned import (  # noqa: F401
+        PartitionedCheckpointFilter,
+        PartitionedCheckpointManager,
+    )
 
 __all__ = [
     "CheckpointConfig",
@@ -21,20 +25,31 @@ __all__ = [
     "CheckpointManager",
     "IdColumnCheckpointManager",
     "NumpyArrayBasedCheckpointFilter",
+    "PartitionedCheckpointFilter",
+    "PartitionedCheckpointManager",
 ]
 
-_LAZY_EXPORTS = (
+_LAZY_EXPORTS_FROM_CHECKPOINT_FILTER = (
     "CheckpointFilter",
     "CheckpointManager",
     "IdColumnCheckpointManager",
     "NumpyArrayBasedCheckpointFilter",
 )
 
+_LAZY_EXPORTS_FROM_PARTITIONED = (
+    "PartitionedCheckpointFilter",
+    "PartitionedCheckpointManager",
+)
+
 
 def __getattr__(name: str) -> type:
     # See the TYPE_CHECKING block above for why these are lazy.
-    if name in _LAZY_EXPORTS:
+    if name in _LAZY_EXPORTS_FROM_CHECKPOINT_FILTER:
         from . import checkpoint_filter
 
         return getattr(checkpoint_filter, name)
+    if name in _LAZY_EXPORTS_FROM_PARTITIONED:
+        from . import partitioned
+
+        return getattr(partitioned, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
