@@ -192,6 +192,13 @@ class PartitionedCheckpointManager(CheckpointManager):
     ) -> Tuple[Optional[ObjectRef[ShardMap]], int]:
         """Load checkpoint data as a map of per-partition shards.
 
+        Args:
+            data_file_dir: Optional directory where data files are written.
+                If provided, pending checkpoints will be used to find and
+                delete matching data files before loading.
+            data_file_filesystem: Optional filesystem for data files. If not
+                provided, defaults to the checkpoint filesystem.
+
         Returns:
             ObjectRef[ShardMap]: a ref to a ``{partition_value: (shard_ref,
                 shard_size_bytes)}`` map. ``None`` if no checkpoint was loaded.
@@ -254,10 +261,14 @@ class PartitionedCheckpointManager(CheckpointManager):
         if not ref_bundles or all(rb.num_rows() == 0 for rb in ref_bundles):
             return None, 0
 
+        # Skip zero-row blocks: an unused shuffle bucket (there are far more
+        # target hash-shuffle partitions than distinct partition values, in
+        # general) can surface here as an empty, schema-less block.
         extract_refs = [
             _extract_partition_shards.remote(block.ref)
             for rb in ref_bundles
             for block in rb.blocks
+            if block.metadata.num_rows
         ]
         shard_map: ShardMap = {}
         for partial_map in ray.get(extract_refs):
