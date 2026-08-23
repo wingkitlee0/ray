@@ -5,10 +5,8 @@ the write/fail/resume pattern), scoped to the partition-sharded manager and
 filter defined in the module under test.
 """
 
-import os
 
 import numpy as np
-import pandas as pd
 import pyarrow as pa
 import pytest
 
@@ -87,7 +85,7 @@ def test_sort_partition_group():
 
 
 def test_extract_partition_shards(ray_start_10_cpus_shared):
-    from ray.data.checkpoint.partitioned import _HASH_COL, _PARTITION_COL
+    from ray.data.checkpoint.partitioned import _PARTITION_COL
 
     values_a = pa.array(np.array([10, 20, 30], dtype=np.uint64))
     values_b = pa.array(np.array([1, 2], dtype=np.uint64))
@@ -160,7 +158,9 @@ def test_filter_unseen_partition_keeps_all_rows(ray_start_10_cpus_shared, tmp_pa
 def test_filter_empty_block(tmp_path):
     config = _checkpoint_config(tmp_path / "ckpt")
     filt = PartitionedCheckpointFilter(config, None)
-    block = pa.table({ID_COL: _struct_id_column([], []), "value": pa.array([], type=pa.string())})
+    block = pa.table(
+        {ID_COL: _struct_id_column([], []), "value": pa.array([], type=pa.string())}
+    )
     result = filt.filter_rows_for_block(block)
     assert result.num_rows == 0
 
@@ -253,26 +253,30 @@ def test_partitioned_checkpoint_partial_failure_no_duplicates(
     for path in [input_path, output_path, checkpoint_path_dir]:
         path.mkdir(exist_ok=True)
 
-    df = pd.DataFrame({"key": range(num_rows), "value": [f"row_{i}" for i in range(num_rows)]})
-    df.to_parquet(input_path / "data.parquet", index=False)
+    # The checkpoint filter runs immediately downstream of Read, before any
+    # of the pipeline's own transforms -- so id_column must already be a
+    # materialized column in the input files (as it would be if an upstream
+    # job wrote it), not computed by a map step between read and write.
+    keys = np.arange(num_rows, dtype=np.uint64)
+    ids = _struct_id_column(keys, (keys % num_partitions).astype(np.uint32))
+    input_table = pa.table(
+        {
+            "id": pa.array(keys, type=pa.int64()),
+            "value": [f"row_{i}" for i in range(num_rows)],
+            ID_COL: ids,
+        }
+    )
+    pa.parquet.write_table(input_table, str(input_path / "data.parquet"))
 
     ctx = DataContext.get_current()
     ctx.checkpoint_config = _checkpoint_config(checkpoint_path_dir)
     ctx.checkpoint_config.delete_checkpoint_on_success = False
-
-    def add_struct_id(batch):
-        keys = batch["key"].to_numpy()
-        batch[ID_COL] = _struct_id_column(
-            keys.astype(np.uint64), (keys % num_partitions).astype(np.uint32)
-        )
-        return batch
 
     from ray.data.tests.test_checkpoint import FailAfterWriteParquetDatasink
 
     with pytest.raises(RuntimeError, match="Simulated failure"):
         ds = ray.data.read_parquet(str(input_path))
         ds = ds.repartition(50)
-        ds = ds.map_batches(add_struct_id, batch_format="pyarrow", batch_size=None)
         failing_datasink = FailAfterWriteParquetDatasink(
             str(output_path), fail_threshold=fail_threshold
         )
@@ -285,15 +289,14 @@ def test_partitioned_checkpoint_partial_failure_no_duplicates(
 
     ds2 = ray.data.read_parquet(str(input_path))
     ds2 = ds2.repartition(50)
-    ds2 = ds2.map_batches(add_struct_id, batch_format="pyarrow", batch_size=None)
     ds2.write_parquet(str(output_path))
 
     ctx.checkpoint_config = None
     result = ray.data.read_parquet(str(output_path)).to_pandas()
 
     assert len(result) == num_rows
-    assert result["key"].is_unique, (
+    assert result["id"].is_unique, (
         "Duplicate keys found: "
-        f"{sorted(result[result.duplicated('key', keep=False)]['key'].unique().tolist())}"
+        f"{sorted(result[result.duplicated('id', keep=False)]['id'].unique().tolist())}"
     )
-    assert sorted(result["key"].tolist()) == list(range(num_rows))
+    assert sorted(result["id"].tolist()) == list(range(num_rows))
