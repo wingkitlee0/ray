@@ -157,29 +157,30 @@ class PartitionedCheckpointManager(CheckpointManager):
     checkpointed IDs. See the module docstring for the scalability problem
     this solves.
 
+    ``id_column``'s struct value must be computed *before* the data reaches
+    Ray Data (e.g. by an upstream job that materializes it into the input
+    files), not by a transform inside the checkpointed pipeline itself: the
+    checkpoint filter runs immediately downstream of the read operator, ahead
+    of any of the pipeline's own map steps.
+
     Example::
 
-        import pyarrow.compute as pc
-        from ray.data.expressions import col
         from ray.data.checkpoint import CheckpointConfig
         from ray.data.checkpoint.partitioned import (
             PartitionedCheckpointManager,
             PartitionedCheckpointFilter,
         )
 
-        ds = ds.with_column(
-            "row_hash",
-            # Any expression producing a struct with "hash" and "partition"
-            # fields; both must be present in every row reaching the write
-            # operator, and must flow through unchanged like any id_column.
-            some_struct_expr,
-        )
+        # `input_ds` already has a "row_hash" struct column with "hash" and
+        # "partition" fields, materialized upstream of this pipeline.
         config = CheckpointConfig(
             id_column="row_hash",
             checkpoint_path="s3://bucket/checkpoints",
             checkpoint_manager_cls=PartitionedCheckpointManager,
             checkpoint_filter_cls=PartitionedCheckpointFilter,
         )
+        ray.data.DataContext.get_current().checkpoint_config = config
+        input_ds.map_batches(expensive_transform).write_parquet(output_path)
     """
 
     HASH_FIELD_NAME: str = "hash"
