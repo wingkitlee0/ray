@@ -175,6 +175,12 @@ DEFAULT_ENABLE_DISK_SHUFFLE = _deduce_default_enable_disk_shuffle()
 DEFAULT_ENABLE_AGGREGATE_SHUFFLE_ELIMINATION = env_bool(
     "RAY_DATA_ENABLE_AGGREGATE_SHUFFLE_ELIMINATION", True
 )
+DEFAULT_ENABLE_MAP_GROUPS_SHUFFLE_ELIMINATION = env_bool(
+    "RAY_DATA_ENABLE_MAP_GROUPS_SHUFFLE_ELIMINATION", True
+)
+DEFAULT_ENABLE_HIVE_KEY_READ_GROUPING = env_bool(
+    "RAY_DATA_ENABLE_HIVE_KEY_READ_GROUPING", False
+)
 
 DEFAULT_PARTIAL_AGGREGATION_MODE = os.environ.get(
     "RAY_DATA_PARTIAL_AGGREGATION_MODE", "estimate"
@@ -958,6 +964,12 @@ class DataContext:
             ``SHUFFLE_V2`` strategy, e.g. right after a join on those keys.
             Defaults to the ``RAY_DATA_ENABLE_AGGREGATE_SHUFFLE_ELIMINATION``
             environment variable (``True`` when unset).
+        enable_map_groups_shuffle_elimination: Whether ``groupby().map_groups()``
+            skips its hash repartition when its input is already hash-partitioned
+            on the group keys under the ``SHUFFLE_V2`` strategy. The partitions are
+            still sorted by key. Defaults to the
+            ``RAY_DATA_ENABLE_MAP_GROUPS_SHUFFLE_ELIMINATION`` environment variable
+            (``True`` when unset).
         partial_aggregation_mode: Whether the map tasks of a ``SHUFFLE_V2``
             group-by pre-aggregate their input. ``"estimate"`` (default) makes
             each map task skip partial aggregation when its group keys are
@@ -1149,6 +1161,15 @@ class DataContext:
     enable_aggregate_shuffle_elimination: bool = (
         DEFAULT_ENABLE_AGGREGATE_SHUFFLE_ELIMINATION
     )
+    # Whether EliminateMapGroupsShuffle may skip a map_groups' hash repartition
+    # when its input is already hash-partitioned on its keys (SHUFFLE_V2 only).
+    enable_map_groups_shuffle_elimination: bool = (
+        DEFAULT_ENABLE_MAP_GROUPS_SHUFFLE_ELIMINATION
+    )
+    # Whether ``groupby(keys)`` on a hive parquet read groups the read by those keys
+    # at plan time, so a following ``map_groups`` or ``aggregate`` skips its shuffle.
+    # Off by default: it makes the listing a single task.
+    enable_hive_key_read_grouping: bool = DEFAULT_ENABLE_HIVE_KEY_READ_GROUPING
     # Whether TopNRewriteRule turns sort().limit(k) into a Top-N (SHUFFLE_V2
     # only), and the largest k it applies to.
     enable_top_n_rewrite: bool = DEFAULT_ENABLE_TOP_N_REWRITE

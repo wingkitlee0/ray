@@ -52,6 +52,9 @@ class ParquetScanner(ArrowFileScanner):
     # ``pre_buffer``, ``dictionary_columns``). Carries the deprecated
     # ``dataset_kwargs`` payload from ``read_parquet`` to the worker.
     parquet_format_kwargs: Dict[str, Any] = field(default_factory=dict)
+    # Hive keys that define a read unit; the reader then emits each unit as one
+    # sorted block holding one key group. ``None`` leaves reads unchanged.
+    group_keys: Optional[Tuple[str, ...]] = None
 
     @override
     def push_filters(self, predicate: Expr) -> Tuple[ArrowFileScanner, Optional[Expr]]:
@@ -130,4 +133,5 @@ class ParquetScanner(ArrowFileScanner):
             synthesized_columns=self.synthesized_columns,
             schema=self.schema,
             parquet_format_kwargs=dict(self.parquet_format_kwargs),
+            group_keys=self.group_keys,
         )

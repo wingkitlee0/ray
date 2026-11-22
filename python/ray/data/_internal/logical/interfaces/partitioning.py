@@ -4,7 +4,22 @@ from typing import Optional, Tuple
 __all__ = [
     "ClusteredDistribution",
     "HashPartitioning",
+    "KeyGroupedPartitioning",
 ]
+
+
+@dataclass(frozen=True)
+class KeyGroupedPartitioning:
+    """Each distinct value of ``columns`` lives entirely within one block.
+
+    Unlike :class:`HashPartitioning`, no hash or partition count is implied,
+    e.g. rows grouped by the hive partition keys of a file layout.
+    """
+
+    columns: Tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        assert len(self.columns) > 0, "KeyGroupedPartitioning requires a column"
 
 
 @dataclass(frozen=True)

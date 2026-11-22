@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
 
 import pyarrow as pa
 from typing_extensions import override
@@ -196,6 +196,9 @@ class ParquetDatasourceV2(FileDataSourceV2):
         # ``read_parquet(dataset_kwargs=...)`` arg. Spread into the format
         # built by ``ParquetFileReader._make_format``.
         self._parquet_format_kwargs = parquet_format_kwargs or {}
+        # Internal: hive keys that define a read unit. When set, each read unit
+        # becomes one block holding one key group.
+        self._group_keys: Optional[Tuple[str, ...]] = None
         # User-supplied schema override. When set, ``infer_schema`` returns
         # it verbatim (plus partition/path augmentation) rather than reading
         # footers, and the scanner pins it on the pyarrow dataset so files
@@ -258,7 +261,25 @@ class ParquetDatasourceV2(FileDataSourceV2):
     def get_file_partitioner(self, **kwargs):
         # Listing rows carry per-row-group stats, so bin-pack them into read
         # units instead of size-estimating whole files.
-        return make_row_group_bin_packer(self._shuffle)
+        packer = make_row_group_bin_packer(self._shuffle)
+        is_hive = (
+            self._partitioning is not None
+            and self._partitioning.style == PartitionStyle.HIVE
+        )
+        if self._group_keys is not None and not is_hive:
+            raise ValueError("group_keys requires hive partitioning on the read")
+        # Hive layouts: one read unit per key tuple, so each key is confined to
+        # one read task. Packing by size would split keys across tasks. Paths
+        # without hive keys fall back to the packer.
+        if is_hive and self._group_keys is not None:
+            from ray.data._internal.datasource_v2.common.hive_partition_grouper import (
+                HivePartitionGrouper,
+            )
+
+            return HivePartitionGrouper(
+                self._partitioning, fallback=packer, group_keys=self._group_keys
+            )
+        return packer
 
     @override
     def resolve_partitioning(
@@ -407,6 +428,7 @@ class ParquetDatasourceV2(FileDataSourceV2):
             ignore_prefixes=options.get("ignore_prefixes"),
             target_block_size=DataContext.get_current().target_max_block_size,
             parquet_format_kwargs=dict(self._parquet_format_kwargs),
+            group_keys=self._group_keys,
         )
 
 

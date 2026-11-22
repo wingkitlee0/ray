@@ -92,7 +92,10 @@ from ray.data._internal.execution.util import (
     merge_label_selector,
     yield_block_with_stats,
 )
-from ray.data._internal.logical.interfaces.partitioning import HashPartitioning
+from ray.data._internal.logical.interfaces.partitioning import (
+    HashPartitioning,
+    KeyGroupedPartitioning,
+)
 from ray.data._internal.stats import StatsDict
 from ray.data._internal.util import MemoryProfiler, iterate_with_retry
 from ray.data.block import (
@@ -405,7 +408,9 @@ class MapOperator(LineageReconstructionMixin, PhysicalOperator, ABC):
         isolate_workers: bool = False,
         generator_backpressure_disabled: bool = False,
         is_read_op: bool = False,
-        output_partitioning: Optional[HashPartitioning] = None,
+        output_partitioning: Optional[
+            Union[HashPartitioning, KeyGroupedPartitioning]
+        ] = None,
     ) -> "MapOperator":
         """Create a MapOperator.
 

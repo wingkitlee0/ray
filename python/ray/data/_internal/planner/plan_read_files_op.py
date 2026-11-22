@@ -31,6 +31,7 @@ from ray.data._internal.execution.operators.map_transformer import (
     BlockMapTransformFn,
     MapTransformer,
 )
+from ray.data._internal.logical.interfaces.partitioning import KeyGroupedPartitioning
 from ray.data._internal.logical.operators import ReadFiles
 from ray.data._internal.output_buffer import OutputBlockSizeOption
 from ray.data.block import Block
@@ -55,6 +56,11 @@ def plan_read_files_op(
     # NOTE: Avoid capturing the whole ``op`` in closures — only field values.
     scanner = op.scanner
     block_udf = op.block_udf
+    # A key-grouped read emits one block per key group. Splitting those blocks
+    # to the target size would break the one-block-per-group guarantee.
+    # Only the Parquet scanner has ``group_keys``; other formats read ungrouped.
+    group_keys = getattr(scanner, "group_keys", None)
+    keeps_groups_whole = group_keys is not None
 
     def do_read(blocks: Iterable[Block], _: TaskContext) -> Iterable[Block]:
         reader = scanner.create_reader()
@@ -74,8 +80,12 @@ def plan_read_files_op(
             [
                 BlockMapTransformFn(
                     do_read,
-                    output_block_size_option=OutputBlockSizeOption.of(
-                        target_max_block_size=data_context.target_max_block_size,
+                    output_block_size_option=(
+                        OutputBlockSizeOption.of(disable_block_shaping=True)
+                        if keeps_groups_whole
+                        else OutputBlockSizeOption.of(
+                            target_max_block_size=data_context.target_max_block_size,
+                        )
                     ),
                 ),
             ]
@@ -87,4 +97,7 @@ def plan_read_files_op(
         ray_remote_args=op.ray_remote_args,
         isolate_workers=data_context.isolate_read_workers,
         is_read_op=True,
+        output_partitioning=(
+            KeyGroupedPartitioning(group_keys) if group_keys else None
+        ),
     )

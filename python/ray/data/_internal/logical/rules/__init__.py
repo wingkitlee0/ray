@@ -9,10 +9,12 @@ from .configure_map_task_memory import (
     ConfigureMapTaskMemoryUsingOutputSize,
 )
 from .derive_list_files_pushdown import DeriveListFilesPushdown
+from .derive_read_group_keys import DeriveReadGroupKeys
 from .eliminate_aggregate_shuffle import (
     EliminateAggregateShuffle,
     EnsureLocalAggregateReadsWholePartitions,
 )
+from .eliminate_map_groups_shuffle import EliminateMapGroupsShuffle
 from .extract_equi_join_keys import ExtractEquiJoinKeys
 from .inherit_target_max_block_size import InheritTargetMaxBlockSizeRule
 from .limit_pushdown import LimitPushdownRule
@@ -34,7 +36,9 @@ __all__ = [
     "ConfigureMapTaskMemoryRule",
     "ConfigureMapTaskMemoryUsingOutputSize",
     "DeriveListFilesPushdown",
+    "DeriveReadGroupKeys",
     "EliminateAggregateShuffle",
+    "EliminateMapGroupsShuffle",
     "EnsureLocalAggregateReadsWholePartitions",
     "ExtractEquiJoinKeys",
     "FuseOperators",

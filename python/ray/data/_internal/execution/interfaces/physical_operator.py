@@ -36,7 +36,10 @@ from ray.data._internal.execution.interfaces.resource_request import (
     execution_resource_dict,
 )
 from ray.data._internal.logical.interfaces import LogicalOperator, Operator
-from ray.data._internal.logical.interfaces.partitioning import HashPartitioning
+from ray.data._internal.logical.interfaces.partitioning import (
+    HashPartitioning,
+    KeyGroupedPartitioning,
+)
 from ray.data._internal.output_buffer import OutputBlockSizeOption
 from ray.data._internal.stats import StatsDict, Timer
 from ray.data.block import (
@@ -735,7 +738,9 @@ class PhysicalOperator(Operator):
         # The LogicalOperator(s) which were translated to create this PhysicalOperator.
         # Set via `PhysicalOperator.set_logical_operators()`.
         self._logical_operators: List[LogicalOperator] = []
-        self._output_partitioning: Optional[HashPartitioning] = None
+        self._output_partitioning: Optional[
+            Union[HashPartitioning, KeyGroupedPartitioning]
+        ] = None
         self._data_context = data_context
         self._id = str(uuid.uuid4())
         # Initialize metrics after data_context is set
@@ -785,7 +790,9 @@ class PhysicalOperator(Operator):
         return self._output_dependencies
 
     @property
-    def output_partitioning(self) -> Optional[HashPartitioning]:
+    def output_partitioning(
+        self,
+    ) -> Optional[Union[HashPartitioning, KeyGroupedPartitioning]]:
         """How this operator's output is hash-partitioned, or ``None`` if unknown.
 
         Lets EliminateAggregateShuffle skip a redundant group-by shuffle.

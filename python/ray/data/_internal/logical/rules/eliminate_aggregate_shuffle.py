@@ -21,6 +21,10 @@ from ray.data._internal.execution.operators.shuffle_operators.shuffle_reduce_ope
     ShuffleReduceOp,
 )
 from ray.data._internal.logical.interfaces import PhysicalPlan, Plan, Rule
+from ray.data._internal.logical.interfaces.partitioning import (
+    HashPartitioning,
+    KeyGroupedPartitioning,
+)
 from ray.data._internal.logical.operators import Aggregate
 from ray.data._internal.logical.rules.configure_map_task_memory import (
     ConfigureMapTaskMemoryUsingOutputSize,
@@ -125,9 +129,11 @@ class EliminateAggregateShuffle(Rule):
         if not distribution.is_satisfied_by(partitioning):
             return None
         # Keep the shuffle if groupby(num_partitions=...) asks for another count.
+        # A key-grouped partitioning has no count to compare, so it is skipped.
         if (
-            aggregate.num_partitions is not None
-            and aggregate.num_partitions != partitioning.num_partitions
+            isinstance(partitioning, HashPartitioning)
+            and aggregate.num_partitions is not None
+            and partitioning.num_partitions != aggregate.num_partitions
         ):
             return None
         key_columns = distribution.columns
@@ -167,6 +173,20 @@ class EliminateAggregateShuffle(Rule):
             self._op_map.pop(op)
         self._op_map[local_op] = aggregate
         return local_op
+
+
+def _is_key_grouped_for(source: PhysicalOperator, aggregate: Aggregate) -> bool:
+    """Whether ``source`` emits each group's rows within one block.
+
+    True when ``source`` declares a :class:`KeyGroupedPartitioning` whose columns
+    are a subset of the aggregate's group keys: then every group is whole in
+    its block.
+    """
+    partitioning = source.output_partitioning
+    if not isinstance(partitioning, KeyGroupedPartitioning):
+        return False
+    distribution = aggregate.required_input_distribution
+    return distribution is not None and distribution.is_satisfied_by(partitioning)
 
 
 class EnsureLocalAggregateReadsWholePartitions(Rule):
@@ -214,6 +234,10 @@ class EnsureLocalAggregateReadsWholePartitions(Rule):
         (source,) = op.input_dependencies
         if isinstance(source, _SHUFFLE_REDUCE_OPS):
             source.set_emit_whole_partitions()
+            return op
+        if _is_key_grouped_for(source, aggregate):
+            # Each block holds whole key groups, so the one-phase aggregation
+            # can read the source directly.
             return op
         return self._restore_shuffle(op, aggregate, source)
 

@@ -11,6 +11,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Tuple,
 )
 
 import pyarrow as pa
@@ -233,6 +234,7 @@ class ParquetFileReader(FileReader, SupportsMetadata):
         synthesized_columns: Sequence[SynthesizedColumn] = (),
         schema: Optional[pa.Schema] = None,
         parquet_format_kwargs: Optional[Dict[str, Any]] = None,
+        group_keys: Optional[Tuple[str, ...]] = None,
     ):
         """Initialize the Parquet reader.
 
@@ -285,6 +287,7 @@ class ParquetFileReader(FileReader, SupportsMetadata):
         self._partition_parser = None
         self._target_block_size = target_block_size
         self._parquet_format_kwargs: Dict[str, Any] = parquet_format_kwargs or {}
+        self._group_keys = group_keys
         # ``None`` until the first read sizes batches. Not an ``object()``
         # sentinel: a reader pickled before its first read would get a copy
         # that no longer compares identical to it.
@@ -439,6 +442,22 @@ class ParquetFileReader(FileReader, SupportsMetadata):
             if self._partition_value_parser is not None
             else {}
         )
+
+    @override
+    def read(self, input_split: FileManifest) -> Iterator[pa.Table]:
+        """Yield the manifest as one block when ``group_keys`` is set.
+
+        The hive grouper emits whole key groups, and with ``group_keys`` it never
+        falls back, so every manifest holds all rows of one group. Merging its
+        batches into one block lets a block-level UDF see the group whole. Without
+        ``group_keys`` the base read is kept.
+        """
+        if self._group_keys is None:
+            yield from super().read(input_split)
+            return
+        tables = list(super().read(input_split))
+        if tables:
+            yield pa.concat_tables(tables, promote_options="default")
 
     @override
     def _iter_fragment_tables(

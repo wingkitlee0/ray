@@ -20,7 +20,9 @@ from ray.data._internal.logical.rules import (
     CommonSubExprElimination,
     ConfigureMapTaskMemoryUsingOutputSize,
     DeriveListFilesPushdown,
+    DeriveReadGroupKeys,
     EliminateAggregateShuffle,
+    EliminateMapGroupsShuffle,
     EnsureLocalAggregateReadsWholePartitions,
     ExtractEquiJoinKeys,
     FuseOperators,
@@ -46,6 +48,9 @@ _LOGICAL_RULESET = Ruleset(
         CombineDownloads,
         PushdownCountFiles,
         TopNRewriteRule,
+        # After the pushdown rules: they must not add or remove a barrier
+        # between the read and the group-by that this rule relies on.
+        DeriveReadGroupKeys,
     ]
 )
 
@@ -54,6 +59,7 @@ _PHYSICAL_RULESET = Ruleset(
         InheritTargetMaxBlockSizeRule,
         SetReadParallelismRule,
         EliminateAggregateShuffle,
+        EliminateMapGroupsShuffle,
         FuseOperators,
         EnsureLocalAggregateReadsWholePartitions,
         ConfigureMapTaskMemoryUsingOutputSize,
